@@ -1,0 +1,66 @@
+name: Rust CI/CD
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    name: Build and Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: x86_64-unknown-linux-gnu
+          profile: minimal
+          override: true
+
+      - name: Install Dependencies
+        run: sudo apt install libdbus-1-dev pkg-config && rustup component add clippy rustfmt
+
+      - name: Run Clippy (Linting)
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Run Tests
+        run: cargo test --all-targets --all-features --verbose
+
+      - name: Build Project
+        run: cargo build --release
+
+      - name: Upload Build Artifacts
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: hrv-rs-build
+          path: target/release/
+      
+      - name: Install cargo-tarpaulin
+        run: cargo install cargo-tarpaulin
+
+      - name: Run Coverage Analysis
+        run: cargo tarpaulin --out Xml --all-targets --all-features
+        env:
+          RUSTFLAGS: "-C link-dead-code"  # Required for accurate coverage analysis
+
+      - name: Upload Coverage Report
+        uses: actions/upload-artifact@v3
+        with:
+          name: coverage-report
+          path: tarpaulin-report.xml
+
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          files: tarpaulin-report.xml
+          fail_ci_if_error: true
+          flags: unittests
