@@ -105,6 +105,8 @@ impl<AHT: AdapterHandle + Send> App for ViewManager<AHT> {
     /// * `ctx` - The `egui::Context` for rendering.
     /// * `_frame` - The `eframe::Frame` for controlling the application window.
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // TODO: make adjustable
+        ctx.set_pixels_per_point(1.5);
         match self.current_view.lock() {
             Ok(view_guard) => {
                 if let Some(view) = &*view_guard {

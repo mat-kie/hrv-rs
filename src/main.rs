@@ -95,7 +95,7 @@ fn main() {
 
     // Start the eframe application with the main view manager.
     eframe::run_native(
-        "Bluetooth Scanner",
+        "Hrv-rs",
         NativeOptions::default(),
         Box::new(|cc| {
             let view_manager = app_controller.launch(cc.egui_ctx.clone());
