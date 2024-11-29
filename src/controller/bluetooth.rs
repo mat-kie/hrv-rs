@@ -189,15 +189,15 @@ impl<AHT: AdapterHandle + Send + Sync> BluetoothApi<AHT> for BluetoothController
         peripheral_addr: BDAddr,
     ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>> {
         Box::pin(async move {
-            let mut lock = self.model.lock().await;
-            if let Some(handle) = lock.get_selected_adapter() {
+            let adapter = self.model.lock().await.get_selected_adapter().clone();
+            if let Some(handle) = adapter {
                 if let Some(tx) = self.tx.clone() {
                     self.listener_handle =
                         Some(handle.listen_to_peripheral(peripheral_addr, tx).await?);
                 } else {
                     return Err("No event transmitter channel!".into());
                 }
-                lock.set_listening(Some(peripheral_addr));
+                self.model.lock().await.set_listening(Some(peripheral_addr));
                 Ok(())
             } else {
                 Err("No adapter selected for listening.".into())
