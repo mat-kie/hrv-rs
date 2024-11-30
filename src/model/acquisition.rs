@@ -38,8 +38,16 @@ pub trait AcquisitionModelApi: Debug + Send {
     ///
     /// # Returns
     /// A reference to an optional `Duration` representing the analysis window size.
-    #[allow(dead_code)]
     fn get_stats_window(&self) -> &Option<Duration>;
+
+    /// Getter for the filter parameter value (fraction of std. dev)
+    ///
+    /// # Returns
+    /// The parameter value for the outlier filter
+    fn get_outlier_filter_value(&self) -> f64;
+
+    /// Setter for the filter parameter value (fraction of std. dev)
+    fn set_outlier_filter_value(&mut self, value: f64);
 
     /// Retrieves the points for the Poincare plot.
     ///
@@ -120,6 +128,14 @@ impl AcquisitionModelApi for AcquisitionModel {
 
     fn set_stats_window(&mut self, window: &Duration) {
         self.rt_data.set_stats_window(Some(*window));
+    }
+    fn get_outlier_filter_value(&self) -> f64 {
+        self.rt_data.filter_value
+    }
+    fn set_outlier_filter_value(&mut self, value: f64) {
+        if value >= 0.0 {
+            self.rt_data.filter_value = value
+        }
     }
 
     fn store_acquisition(&mut self) {

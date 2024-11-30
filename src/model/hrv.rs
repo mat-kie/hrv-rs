@@ -57,6 +57,7 @@ pub struct HrvSessionData {
     pub rx_time: Vec<Duration>,
     /// Optional time window for statistics.
     pub stats_window: Option<Duration>,
+    pub filter_value: f64,
     /// Calculated HRV statistics.
     pub hrv_stats: Option<HrvStatistics>,
 }
@@ -130,10 +131,7 @@ impl HrvSessionData {
 impl HrvStatistics {
     /// Constructs a new `HrvStatistics` from runtime data and an optional time window.
     pub fn new(data: &HrvSessionData, window: Option<Duration>) -> Self {
-        if data.rr_intervals.len() < 4 {
-            info!("Not enough RR intervals for HRV stats calculation.");
-            return Self::default();
-        }
+        
 
         let (rr_intervals, elapsed_duration) = if let Some(window) = window {
             let start_time = *data.rr_time.last().unwrap() - window;
@@ -151,6 +149,10 @@ impl HrvStatistics {
         } else {
             (data.rr_intervals.clone(), *data.rr_time.last().unwrap())
         };
+        if rr_intervals.len() < 4 {
+            info!("Not enough RR intervals for HRV stats calculation.");
+            return Self::default();
+        }
 
         let avg_hr = if data.hr_values.is_empty() {
             0.0

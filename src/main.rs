@@ -9,7 +9,7 @@ use controller::{
 };
 use eframe::NativeOptions;
 use env_logger::Env;
-use model::bluetooth::BluetoothAdapter;
+use model::bluetooth::{BluetoothAdapter, MockAdapterHandle};
 use model::{acquisition::AcquisitionModel, bluetooth::BluetoothModel};
 use std::sync::Arc;
 use tokio::runtime::Runtime;
@@ -81,7 +81,11 @@ fn main() {
     let _enter = rt.enter();
 
     // Shared state for Bluetooth model.
+    #[cfg(feature="mock")]
+    let bluetooth_model = Arc::new(Mutex::new(BluetoothModel::<MockAdapterHandle>::default()));
+    #[cfg(not(feature="mock"))]
     let bluetooth_model = Arc::new(Mutex::new(BluetoothModel::<BluetoothAdapter>::default()));
+
     // Shared state for acquisition model.
     let acquisition_model = Arc::new(std::sync::Mutex::new(AcquisitionModel::default()));
 

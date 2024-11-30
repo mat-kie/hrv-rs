@@ -79,8 +79,9 @@ impl<AMT: AcquisitionModelApi> DataAcquisitionApi for AcquisitionController<AMT>
             HrvEvent::TimeWindowChanged(time) => {
                 self.model.lock().unwrap().set_stats_window(&time);
             }
-            HrvEvent::OutlierFilterChanged(_) => {
+            HrvEvent::OutlierFilterChanged(val) => {
                 // TODO: Implement outlier filter update logic.
+                self.model.lock().unwrap().set_outlier_filter_value(val);
             }
         }
         Ok(())

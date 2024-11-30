@@ -4,14 +4,22 @@
 //! It includes structures and methods for rendering statistical data, charts, and user interface components.
 
 use crate::{
-    core::{events::AppEvent, view_trait::ViewApi},
-    model::acquisition::AcquisitionModelApi,
-    model::hrv::HrvStatistics,
+    core::{
+        events::{self, AppEvent},
+        view_trait::ViewApi,
+    },
+    model::{acquisition::AcquisitionModelApi, bluetooth::HeartrateMessage, hrv::HrvStatistics},
 };
-use eframe::egui;
+use eframe::{egui, App};
 use egui::Color32;
 use egui_plot::{Legend, Plot, Points};
-use std::sync::{Arc, Mutex};
+use log::info;
+use std::{
+    fmt::format,
+    ops::RangeInclusive,
+    sync::{Arc, Mutex},
+};
+use time::{Duration, OffsetDateTime};
 
 /// `HrvView` structure.
 ///
@@ -40,36 +48,114 @@ impl HrvView {
     /// # Arguments
     /// * `ui` - The `egui::Ui` instance for rendering.
     /// * `stats` - Optional HRV statistics to display.
-    fn render_statistics(&self, ui: &mut egui::Ui, stats: &Option<HrvStatistics>) {
-        if let Some(hrv) = stats {
-            ui.heading("HRV Statistics");
-
-            ui.horizontal(|ui| {
-                let label = ui.label("Heart Rate: ");
-                ui.label(format!("{:.1} 1/min", hrv.avg_hr))
-                    .labelled_by(label.id);
-            });
-
-            ui.horizontal(|ui| {
-                let label = ui.label("rMSSD: ");
-                ui.label(format!("{:.2} ms", hrv.rmssd))
-                    .labelled_by(label.id);
-            });
-
-            ui.horizontal(|ui| {
-                let label = ui.label("SD1: ");
-                ui.label(format!("{:.2} ms", hrv.sd1)).labelled_by(label.id);
-            });
-
-            ui.horizontal(|ui| {
-                let label = ui.label("SD2: ");
-                ui.label(format!("{:.2} ms", hrv.sd2)).labelled_by(label.id);
-            });
-        } else {
-            ui.label("No HRV statistics available.");
-        }
+    fn render_statistics(
+        &self,
+        ui: &mut egui::Ui,
+        model: &dyn AcquisitionModelApi,
+        msg: &HeartrateMessage,
+    ) {
+        ui.heading("Statistics");
+        egui::Grid::new("stats grid").num_columns(2).show(ui, |ui| {
+            let desc = egui::Label::new("Heartrate: ");
+            ui.add(desc);
+            let val = egui::Label::new(format!("{:.2} BPM", msg.get_hr()));
+            ui.add(val);
+            ui.end_row();
+            if let Some(stats) = model.get_hrv_stats() {
+                let desc = egui::Label::new("RMSSD [ms]");
+                ui.add(desc);
+                let val = egui::Label::new(format!("{:.2} ms", stats.rmssd));
+                ui.add(val);
+                ui.end_row();
+                let desc = egui::Label::new("SDRR [ms]");
+                ui.add(desc);
+                let val = egui::Label::new(format!("{:.2} ms", stats.sdrr));
+                ui.add(val);
+                ui.end_row();
+                let desc = egui::Label::new("SD1 [ms]");
+                ui.add(desc);
+                let val = egui::Label::new(format!("{:.2} ms", stats.sd1));
+                ui.add(val);
+                ui.end_row();
+                let desc = egui::Label::new("SD2 [ms]");
+                ui.add(desc);
+                let val = egui::Label::new(format!("{:.2} ms", stats.sd2));
+                ui.add(val);
+                ui.end_row();
+            }
+        });
+        ui.separator();
     }
 
+    fn render_settings(
+        &self,
+        model: &dyn AcquisitionModelApi,
+        ui: &mut egui::Ui,
+    ) -> Option<AppEvent> {
+        ui.heading("Settings");
+        let evt = egui::Grid::new("a grid")
+            .num_columns(2)
+            .show(ui, |ui| {
+                let mut seconds = model
+                    .get_stats_window()
+                    .unwrap_or(Duration::minutes(5))
+                    .as_seconds_f64();
+                let desc = egui::Label::new("time window [s]");
+                ui.add(desc);
+                let slider = egui::Slider::new(&mut seconds, RangeInclusive::new(0.0, 600.0));
+                let evt = if ui.add(slider).changed() {
+                    if let Some(new_duration) = Duration::checked_seconds_f64(seconds) {
+                        info!("changed value to: {}", seconds);
+                        Some(AppEvent::Data(
+                            crate::core::events::HrvEvent::TimeWindowChanged(new_duration),
+                        ))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                ui.end_row();
+                let mut outlier_value = model.get_outlier_filter_value();
+                let desc = egui::Label::new("outlier filter");
+                ui.add(desc);
+                let slider = egui::Slider::new(&mut outlier_value, RangeInclusive::new(0.0, 10.0));
+                let evt2 = if ui.add(slider).changed() {
+                    info!("changed value to: {}", outlier_value);
+                    Some(AppEvent::Data(
+                        crate::core::events::HrvEvent::OutlierFilterChanged(outlier_value),
+                    ))
+                } else {
+                    None
+                };
+                ui.end_row();
+                evt.or(evt2)
+            })
+            .inner;
+        ui.separator();
+        evt
+    }
+
+    fn render_acq(&self, model: &dyn AcquisitionModelApi, ui: &mut egui::Ui) {
+        ui.heading("Acquisition");
+        egui::Grid::new("acq grid").num_columns(2).show(ui, |ui| {
+            let desc = egui::Label::new("Elapsed time: ");
+            ui.add(desc);
+            let val = egui::Label::new(format!(
+                "{} s",
+                model
+                    .get_start_time()
+                    .map(|o| { (OffsetDateTime::now_utc() - o).whole_seconds() })
+                    .unwrap_or(0)
+            ));
+            ui.add(val);
+            ui.end_row();
+            ui.button("Restart");
+            ui.button("Stop & Save");
+            ui.end_row();
+        });
+        ui.separator();
+    }
     /// Renders the Poincare plot.
     ///
     /// Displays a scatter plot of RR interval data to visualize short- and long-term HRV.
@@ -106,22 +192,36 @@ impl ViewApi for HrvView {
     /// An optional `AppEvent` triggered by user interactions.
     fn render(&self, ctx: &egui::Context) -> Option<AppEvent> {
         // Extract HRV statistics and Poincare plot points from the model.
-        let (stats, points) = self
+        let (stats, points, msg) = self
             .model
             .lock()
-            .map(|model| (model.get_hrv_stats().clone(), model.get_poincare_points()))
-            .unwrap_or((None, Vec::new()));
+            .map(|model| {
+                (
+                    model.get_hrv_stats().clone(),
+                    model.get_poincare_points(),
+                    model.get_last_msg(),
+                )
+            })
+            .unwrap_or((None, Vec::new(), None));
 
         // Render the left panel with HRV statistics.
-        egui::SidePanel::left("left_sidebar").show(ctx, |ui| {
-            self.render_statistics(ui, &stats);
-        });
+        let model = self.model.lock().unwrap();
+        let evt = egui::SidePanel::left("left_sidebar")
+            .show(ctx, |ui| {
+                let evt = { self.render_settings(&*model, ui) };
+                if let Some(msg) = msg {
+                    self.render_statistics(ui, &*model, &msg);
+                }
+                self.render_acq(&*model, ui);
+                evt
+            })
+            .inner;
 
         // Render the central panel with the Poincare plot.
         egui::CentralPanel::default().show(ctx, |ui| {
-            self.render_poincare_plot(ui, &points);
+            self.render_poincare_plot(ui, &model.get_poincare_points());
         });
 
-        None // No events to emit from this view.
+        evt // No events to emit from this view.
     }
 }
