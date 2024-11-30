@@ -164,11 +164,19 @@ impl HrvView {
     /// * `ui` - The `egui::Ui` instance for rendering.
     /// * `points` - The Poincare plot points to display.
     fn render_poincare_plot(&self, ui: &mut egui::Ui, points: &[[f64; 2]]) {
-        let plot = Plot::new("Poincare Plot")
+        
+        let plot = if ui.available_height()<ui.available_width(){
+             Plot::new("Poincare Plot")
             .legend(Legend::default())
-            .view_aspect(1.0);
-
+            .view_aspect(1.0).height(ui.available_height())
+        }else{
+            Plot::new("Poincare Plot")
+            .legend(Legend::default())
+            .view_aspect(1.0).width(ui.available_width())
+        };
+        
         plot.show(ui, |plot_ui| {
+            
             plot_ui.points(
                 Points::new(points.to_owned())
                     .name("R-R Intervals")
