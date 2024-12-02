@@ -62,8 +62,6 @@ impl<AHT: AdapterHandle + Send + 'static> ViewApi for ModelInitVView<AHT> {
           }else if ui.button("load file").clicked(){
             // load model from file
             
-          }else{
-            
           }
           
         }).inner

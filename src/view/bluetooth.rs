@@ -79,7 +79,7 @@ impl<AHT: AdapterHandle + 'static> BluetoothView<AHT> {
                 let btn = egui::Button::new(device);
                 
                 if ui.add_sized([ui.available_width(), 20.0], btn).clicked() {
-                    self.event(AppEvent::Bluetooth(BluetoothEvent::StartListening(addr.clone())));
+                    self.event(AppEvent::Bluetooth(BluetoothEvent::StartListening(*addr)));
                 }
                 
             });

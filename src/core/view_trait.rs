@@ -3,7 +3,6 @@
 //! This module defines the `ViewTrait`, which is implemented by all views in the HRV analysis tool.
 //! It provides a standardized interface for rendering and updating views.
 
-use tokio::sync::mpsc::Sender;
 
 use crate::core::events::AppEvent;
 

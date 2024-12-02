@@ -7,7 +7,7 @@ use crate::{
     core::{events::AppEvent, view_trait::ViewApi},
     model::{acquisition::AcquisitionModelApi, bluetooth::HeartrateMessage},
 };
-use eframe::{egui, App};
+use eframe::egui;
 use egui::Color32;
 use egui_plot::{Legend, Plot, Points};
 use log::{error, info};
