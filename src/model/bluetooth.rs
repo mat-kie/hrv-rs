@@ -4,7 +4,7 @@
 //! It provides abstractions for interacting with Bluetooth adapters, devices, and Heart Rate Service (HRS) messages.
 
 use crate::core::constants::HEARTRATE_MEASUREMENT_UUID;
-use crate::core::events::{AppEvent, BluetoothEvent, HrvEvent};
+use crate::core::events::{AppEvent, HrvEvent};
 use crate::map_err;
 use btleplug::api::{Peripheral, ScanFilter};
 use btleplug::{

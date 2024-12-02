@@ -5,17 +5,16 @@
 
 use crate::{
     core::{
-        events::{self, AppEvent},
+        events::{AppEvent},
         view_trait::ViewApi,
     },
-    model::{acquisition::AcquisitionModelApi, bluetooth::HeartrateMessage, hrv::HrvStatistics},
+    model::{acquisition::AcquisitionModelApi, bluetooth::HeartrateMessage},
 };
-use eframe::{egui, App};
+use eframe::egui;
 use egui::Color32;
 use egui_plot::{Legend, Plot, Points};
 use log::info;
 use std::{
-    fmt::format,
     ops::RangeInclusive,
     sync::{Arc, Mutex},
 };
@@ -163,7 +162,7 @@ impl HrvView {
             None
         }).inner;
         ui.separator();
-        return inner_event
+        inner_event
     }
     
     /// Renders the Poincare plot.

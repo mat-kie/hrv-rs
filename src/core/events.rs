@@ -3,7 +3,7 @@
 //! This module defines events used for communication between different components
 //! of the HRV analysis tool. Events are central to the application's event-driven architecture.
 use btleplug::api::BDAddr;
-use std::{path::PathBuf, rc::Rc, sync::{Arc, Mutex}};
+use std::{path::PathBuf, sync::{Arc, Mutex}};
 use time::Duration;
 use uuid::Uuid;
 

@@ -5,21 +5,16 @@
 
 use crate::{
     core::{
-        events::{AppEvent, ViewState},
+        events::AppEvent,
         view_trait::ViewApi,
     },
     model::bluetooth::AdapterHandle,
-    view::{bluetooth::BluetoothView, hrv_analysis::HrvView},
 };
 use eframe::App;
-use log::{error, info, warn};
-use std::{
-    marker::PhantomData,
-    mem::MaybeUninit,
-    sync::{Arc, Mutex},
-};
+use log::{error, warn};
+use std::marker::PhantomData;
 use tokio::sync::{
-    broadcast::{error::RecvError, Sender},
+    broadcast::Sender,
     mpsc::{error::TryRecvError, Receiver},
 };
 

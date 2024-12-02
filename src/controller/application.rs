@@ -6,7 +6,7 @@
 use super::{acquisition::DataAcquisitionApi, bluetooth::handle_event};
 use crate::{
     controller::bluetooth::BluetoothApi,
-    core::{events::{AppEvent, BluetoothEvent, ViewState}, view_trait::ViewApi},
+    core::{events::{AppEvent, BluetoothEvent}, view_trait::ViewApi},
     model::{
         acquisition::AcquisitionModelApi,
         bluetooth::{AdapterHandle, BluetoothModelApi},
@@ -14,8 +14,7 @@ use crate::{
     view::{bluetooth::BluetoothView, hrv_analysis::HrvView, manager::ViewManager},
 };
 
-use eframe::App;
-use log::{error, info, warn};
+use log::{error, info};
 use std::{
     marker::PhantomData,
     sync::{Arc, Mutex},
@@ -145,8 +144,8 @@ impl<
                     }
                 }
                 AppEvent::SelectModel(model)=>{
-                    let mut self_lck = self.acq_model.lock().unwrap();
-                    let mut evt_lck = model.lock().unwrap();
+                    let self_lck = self.acq_model.lock().unwrap();
+                    let evt_lck = model.lock().unwrap();
                 }
             }
             gui_ctx.request_repaint();

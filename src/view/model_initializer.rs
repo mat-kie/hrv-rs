@@ -4,11 +4,10 @@
 //! It includes structures and methods for rendering the Bluetooth device selector and interaction UI.
 
 use eframe::egui;
-use egui::Color32;
 use std::{marker::PhantomData, sync::Arc};
 
 use crate::{
-    core::{events::AppEvent, events::BluetoothEvent, view_trait::ViewApi},
+    core::{events::AppEvent, view_trait::ViewApi},
     model::bluetooth::{AdapterHandle, BluetoothModelApi},
 };
 
