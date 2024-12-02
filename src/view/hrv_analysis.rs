@@ -4,21 +4,19 @@
 //! It includes structures and methods for rendering statistical data, charts, and user interface components.
 
 use crate::{
-    core::{
-        events::{AppEvent},
-        view_trait::ViewApi,
-    },
+    core::{events::AppEvent, view_trait::ViewApi},
     model::{acquisition::AcquisitionModelApi, bluetooth::HeartrateMessage},
 };
-use eframe::egui;
+use eframe::{egui, App};
 use egui::Color32;
 use egui_plot::{Legend, Plot, Points};
-use log::info;
+use log::{error, info};
 use std::{
     ops::RangeInclusive,
     sync::{Arc, Mutex},
 };
 use time::{Duration, OffsetDateTime};
+use tokio::sync::mpsc::Sender;
 
 /// `HrvView` structure.
 ///
@@ -26,6 +24,7 @@ use time::{Duration, OffsetDateTime};
 pub struct HrvView {
     /// Shared access to the runtime HRV data model.
     model: Arc<Mutex<dyn AcquisitionModelApi>>,
+    event_ch: Sender<AppEvent>,
 }
 
 impl HrvView {
@@ -36,8 +35,8 @@ impl HrvView {
     ///
     /// # Returns
     /// A new `HrvView` instance.
-    pub fn new(model: Arc<Mutex<dyn AcquisitionModelApi>>) -> Self {
-        Self { model }
+    pub fn new(model: Arc<Mutex<dyn AcquisitionModelApi>>, event_ch: Sender<AppEvent>) -> Self {
+        Self { model, event_ch }
     }
 
     /// Renders the HRV statistics panel.
@@ -135,36 +134,39 @@ impl HrvView {
         evt
     }
 
-    fn render_acq(&self, model: &dyn AcquisitionModelApi, ui: &mut egui::Ui)->Option<AppEvent> {
+    fn render_acq(&self, model: &dyn AcquisitionModelApi, ui: &mut egui::Ui) -> Option<AppEvent> {
         ui.heading("Acquisition");
-        let inner_event = egui::Grid::new("acq grid").num_columns(2).show(ui, |ui| {
-            let desc = egui::Label::new("Elapsed time: ");
-            ui.add(desc);
-            let val = egui::Label::new(format!(
-                "{} s",
-                model
-                    .get_start_time()
-                    .map(|o| { (OffsetDateTime::now_utc() - o).whole_seconds() })
-                    .unwrap_or(0)
-            ));
-            ui.add(val);
-            ui.end_row();
-            if ui.button("Restart").clicked(){
-                return Some(AppEvent::AcquisitionStartReq)
-            }
-            if ui.button("Stop & Save").clicked(){
-                let selected = rfd::FileDialog::new().save_file();
-                if let Some(path) = selected {
-                    return Some(AppEvent::AcquisitionStopReq(path))
+        let inner_event = egui::Grid::new("acq grid")
+            .num_columns(2)
+            .show(ui, |ui| {
+                let desc = egui::Label::new("Elapsed time: ");
+                ui.add(desc);
+                let val = egui::Label::new(format!(
+                    "{} s",
+                    model
+                        .get_start_time()
+                        .map(|o| { (OffsetDateTime::now_utc() - o).whole_seconds() })
+                        .unwrap_or(0)
+                ));
+                ui.add(val);
+                ui.end_row();
+                if ui.button("Restart").clicked() {
+                    return Some(AppEvent::AcquisitionStartReq);
                 }
-            }
-            ui.end_row();
-            None
-        }).inner;
+                if ui.button("Stop & Save").clicked() {
+                    let selected = rfd::FileDialog::new().save_file();
+                    if let Some(path) = selected {
+                        return Some(AppEvent::AcquisitionStopReq(path));
+                    }
+                }
+                ui.end_row();
+                None
+            })
+            .inner;
         ui.separator();
         inner_event
     }
-    
+
     /// Renders the Poincare plot.
     ///
     /// Displays a scatter plot of RR interval data to visualize short- and long-term HRV.
@@ -173,19 +175,19 @@ impl HrvView {
     /// * `ui` - The `egui::Ui` instance for rendering.
     /// * `points` - The Poincare plot points to display.
     fn render_poincare_plot(&self, ui: &mut egui::Ui, points: &[[f64; 2]]) {
-        
-        let plot = if ui.available_height()<ui.available_width(){
-             Plot::new("Poincare Plot")
-            .legend(Legend::default())
-            .view_aspect(1.0).height(ui.available_height())
-        }else{
+        let plot = if ui.available_height() < ui.available_width() {
             Plot::new("Poincare Plot")
-            .legend(Legend::default())
-            .view_aspect(1.0).width(ui.available_width())
+                .legend(Legend::default())
+                .view_aspect(1.0)
+                .height(ui.available_height())
+        } else {
+            Plot::new("Poincare Plot")
+                .legend(Legend::default())
+                .view_aspect(1.0)
+                .width(ui.available_width())
         };
-        
+
         plot.show(ui, |plot_ui| {
-            
             plot_ui.points(
                 Points::new(points.to_owned())
                     .name("R-R Intervals")
@@ -198,6 +200,11 @@ impl HrvView {
 }
 
 impl ViewApi for HrvView {
+    fn event(&self, event: AppEvent) {
+        if let Err(e) = self.event_ch.try_send(event) {
+            error!("Failed to send AppEvent: {}", e);
+        }
+    }
     /// Renders the complete HRV analysis view.
     ///
     /// Displays both the HRV statistics panel and the Poincare plot.
@@ -207,24 +214,14 @@ impl ViewApi for HrvView {
     ///
     /// # Returns
     /// An optional `AppEvent` triggered by user interactions.
-    fn render(&self, ctx: &egui::Context) -> Option<AppEvent> {
+    fn render(&self, ctx: &egui::Context) -> Result<(), String> {
         // Extract HRV statistics and Poincare plot points from the model.
-        let (stats, points, msg) = self
-            .model
-            .lock()
-            .map(|model| {
-                (
-                    model.get_hrv_stats().clone(),
-                    model.get_poincare_points(),
-                    model.get_last_msg(),
-                )
-            })
-            .unwrap_or((None, Vec::new(), None));
 
         // Render the left panel with HRV statistics.
         let model = self.model.lock().unwrap();
         let evt = egui::SidePanel::left("left_sidebar")
             .show(ctx, |ui| {
+                let msg = model.get_last_msg();
                 let evt = { self.render_settings(&*model, ui) };
                 if let Some(msg) = msg {
                     self.render_statistics(ui, &*model, &msg);
@@ -239,6 +236,6 @@ impl ViewApi for HrvView {
             self.render_poincare_plot(ui, &model.get_poincare_points());
         });
 
-        evt // No events to emit from this view.
+        Ok(()) // no errors
     }
 }

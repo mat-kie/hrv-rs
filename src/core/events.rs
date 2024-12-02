@@ -10,20 +10,7 @@ use uuid::Uuid;
 use crate::model::{
     acquisition::AcquisitionModelApi,
     bluetooth::HeartrateMessage,
-    bluetooth::{AdapterHandle, BluetoothModelApi},
 };
-
-/// Represents the current view in the application.
-///
-/// This is used to determine which view is rendered and provides the necessary data for each view.
-#[derive(Clone, Debug)]
-pub enum ViewState<AHT: AdapterHandle> {
-    /// The view for selecting Bluetooth adapters and devices.
-    BluetoothSelectorView(Arc<tokio::sync::Mutex<dyn BluetoothModelApi<AHT>>>),
-
-    /// The view for displaying HRV (Heart Rate Variability) data.
-    AcquisitionView(Arc<Mutex<dyn AcquisitionModelApi>>),
-}
 
 /// Enumeration of Bluetooth-related events.
 ///

@@ -5,6 +5,8 @@
 
 use eframe::egui;
 use egui::Color32;
+use log::error;
+use tokio::sync::mpsc::Sender;
 use std::{marker::PhantomData, sync::Arc};
 
 use crate::{
@@ -18,18 +20,20 @@ use crate::{
 pub struct BluetoothView<AHT: AdapterHandle> {
     /// The shared Bluetooth model that provides adapter and device information.
     model: Arc<tokio::sync::Mutex<dyn BluetoothModelApi<AHT>>>,
+    event_ch: Sender<AppEvent>,
     /// A marker to track the generic type for the adapter handle.
     _marker: PhantomData<AHT>,
 }
 
-impl<AHT: AdapterHandle> BluetoothView<AHT> {
+impl<AHT: AdapterHandle + 'static> BluetoothView<AHT> {
     /// Creates a new `BluetoothView` instance.
     ///
     /// # Arguments
     /// * `model` - Shared access to the `BluetoothModel`.
-    pub fn new(model: Arc<tokio::sync::Mutex<dyn BluetoothModelApi<AHT>>>) -> Self {
+    pub fn new(model: Arc<tokio::sync::Mutex<dyn BluetoothModelApi<AHT>>>, event_ch:Sender<AppEvent>) -> Self {
         Self {
             model,
+            event_ch,
             _marker: Default::default(),
         }
     }
@@ -41,7 +45,7 @@ impl<AHT: AdapterHandle> BluetoothView<AHT> {
     ///
     /// # Returns
     /// An optional `AppEvent` triggered by adapter selection.
-    fn render_adapters(&self, ui: &mut egui::Ui) -> Option<AppEvent> {
+    fn render_adapters(&self, ui: &mut egui::Ui) {
         let model = self.model.blocking_lock();
         let selected = model.get_selected_adapter();
         ui.label("Select a Bluetooth Adapter:");
@@ -52,12 +56,10 @@ impl<AHT: AdapterHandle> BluetoothView<AHT> {
                     btn = btn.fill(Color32::DARK_BLUE);
                 }
             }
-
             if ui.add(btn).clicked() {
-                return Some(AppEvent::Bluetooth(BluetoothEvent::AdapterSelected(uuid)));
+                self.event(AppEvent::Bluetooth(BluetoothEvent::AdapterSelected(uuid)));
             }
         }
-        None
     }
 
     /// Renders the list of discovered Bluetooth devices and returns the selected device address if clicked.
@@ -67,27 +69,22 @@ impl<AHT: AdapterHandle> BluetoothView<AHT> {
     ///
     /// # Returns
     /// An optional `AppEvent` triggered by device selection.
-    fn render_devices(&self, ui: &mut egui::Ui) -> Option<AppEvent> {
+    fn render_devices(&self, ui: &mut egui::Ui) {
         let model = self.model.blocking_lock();
         ui.heading("Discovered Devices:");
         
             for (addr, device) in model.get_devices() {
-                if let Some(evt) = ui.vertical(|ui| {
+                ui.vertical(|ui| {
 
                 let btn = egui::Button::new(device);
                 
                 if ui.add_sized([ui.available_width(), 20.0], btn).clicked() {
-                    return Some(AppEvent::Bluetooth(BluetoothEvent::StartListening(*addr)));
+                    self.event(AppEvent::Bluetooth(BluetoothEvent::StartListening(addr.clone())));
                 }
-                None
-            }).inner
-            {
-                return Some(evt)
+                
+            });
             }
-            }
-            None
-        
-       
+              
        
     }
 
@@ -104,6 +101,12 @@ impl<AHT: AdapterHandle> BluetoothView<AHT> {
 }
 
 impl<AHT: AdapterHandle + Send + 'static> ViewApi for BluetoothView<AHT> {
+
+    fn event(&self, event: AppEvent) {
+        if let Err(e)= self.event_ch.try_send(event){
+          error!("Failed to send AppEvent: {}", e);
+        }
+    }
     /// Renders the complete Bluetooth view UI.
     ///
     /// # Arguments
@@ -111,26 +114,19 @@ impl<AHT: AdapterHandle + Send + 'static> ViewApi for BluetoothView<AHT> {
     ///
     /// # Returns
     /// An optional `AppEvent` triggered by user interactions.
-    fn render(&self, ctx: &egui::Context) -> Option<AppEvent> {
+    fn render(&self, ctx: &egui::Context) -> Result<(), String> {
         egui::CentralPanel::default()
             .show(ctx, |ui| {
                 ui.heading("Please select Bluetooth device");
                 egui::ScrollArea::vertical()
                     .show(ui, |ui| {
-                        let selected_adapter = self.render_adapters(ui);
-                        if selected_adapter.is_some() {
-                            return selected_adapter;
-                        }
+                        self.render_adapters(ui);
                         self.render_scanning_status(ui);
                         ui.separator();
-                        let selected_peripheral = self.render_devices(ui);
-                        if selected_peripheral.is_some() {
-                            return selected_peripheral;
-                        }
-                        None
+                        self.render_devices(ui);
+                        
                     })
-                    .inner
-            })
-            .inner
+            });
+        Ok(())
     }
 }

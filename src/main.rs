@@ -9,7 +9,7 @@ use controller::{
 };
 use eframe::NativeOptions;
 use env_logger::Env;
-use model::bluetooth::MockAdapterHandle;
+use model::bluetooth::{BluetoothAdapter, MockAdapterHandle};
 use model::{acquisition::AcquisitionModel, bluetooth::BluetoothModel};
 use std::sync::Arc;
 use tokio::runtime::Runtime;

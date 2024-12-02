@@ -18,7 +18,7 @@ use std::fmt;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::{fmt::Debug, future::Future};
-use tokio::sync::broadcast::Sender;
+use tokio::sync::mpsc::Sender;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
@@ -415,7 +415,7 @@ impl AdapterHandle for BluetoothAdapter {
                         || tx
                             .send(AppEvent::Data(HrvEvent::HrMessage(HeartrateMessage::new(
                                 &data.value,
-                            ))))
+                            )))).await
                             .is_err()
                     {
                         break;
@@ -501,11 +501,10 @@ impl AdapterHandle for MockAdapterHandle {
                         let data: [u8; 4] = [0b10000, 60, (val&255) as _, ((val>>8)&255)as _];
                         let _ = _tx.send(AppEvent::Data(HrvEvent::HrMessage(
                             HeartrateMessage::new(&data),
-                        )));
+                        ))).await;
 
                         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
                     }
-                    Ok(())
                 }))
             } else {
                 Err("Peripheral not found".to_string())

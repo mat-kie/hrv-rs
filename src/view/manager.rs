@@ -14,7 +14,7 @@ use eframe::App;
 use log::{error, warn};
 use std::marker::PhantomData;
 use tokio::sync::{
-    broadcast::Sender,
+    mpsc::Sender,
     mpsc::{error::TryRecvError, Receiver},
 };
 
@@ -75,10 +75,8 @@ impl<AHT: AdapterHandle + Send> App for ViewManager<AHT> {
             }
         }
         if let Some(view) = &self.current_view {
-            if let Some(event) = view.render(ctx) {
-                if let Err(err) = self.event_ch.send(event) {
-                    error!("Failed to send view event: {}", err);
-                }
+            if let Err(err) = view.render(ctx) {
+                error!("Failed to render view: {}", err);
             }
         }
     }

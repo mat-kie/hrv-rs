@@ -19,7 +19,7 @@ use std::{
     marker::PhantomData,
     sync::{Arc, Mutex},
 };
-use tokio::sync::broadcast::{Receiver};
+use tokio::sync::mpsc::{Receiver};
 use tokio::sync::mpsc::Sender;
 
 /// Main application controller.
@@ -88,15 +88,15 @@ impl<
     /// The view manager to coordinate application views.
     pub fn launch(mut self, gui_ctx: egui::Context) -> ViewManager<AHT> {
         let (view_tx, view_rx) = tokio::sync::mpsc::channel::<Box<dyn ViewApi>>(16);
-        let (event_tx, event_rx) = tokio::sync::broadcast::channel(16);
+        let (event_tx, event_rx) = tokio::sync::mpsc::channel(16);
         self.ble_controller.initialize(event_tx.clone());
         if let Err(e) = view_tx
-            .blocking_send(Box::new(BluetoothView::new(self.bt_model.clone()))){
+            .blocking_send(Box::new(BluetoothView::new(self.bt_model.clone(), event_tx.clone()))){
                 error!("couold not send initial view to view manager: {}", e);
             }
 
-        std::mem::drop(tokio::spawn(self.event_handler(view_tx, event_rx, gui_ctx)));
-        let _ = event_tx.send(AppEvent::Bluetooth(BluetoothEvent::DiscoverAdapters));
+        std::mem::drop(tokio::spawn(self.event_handler(view_tx, event_rx, event_tx.clone(), gui_ctx)));
+        let _ = event_tx.try_send(AppEvent::Bluetooth(BluetoothEvent::DiscoverAdapters));
         ViewManager::new(view_rx, event_tx)
     }
 
@@ -111,10 +111,11 @@ impl<
     async fn event_handler(
         mut self,
         view_ch: Sender<Box<dyn ViewApi>>,
-        mut event_ch: Receiver<AppEvent>,
+        mut event_ch_rx: Receiver<AppEvent>,
+        event_ch_tx: Sender<AppEvent>,
         gui_ctx: egui::Context,
     ) {
-        while let Ok(evt) = event_ch.recv().await {
+        while let Some(evt) = event_ch_rx.recv().await {
             match evt {
                 AppEvent::Bluetooth(btev) => {
                     if let Err(e) = handle_event(&mut self.ble_controller, btev).await {
@@ -122,9 +123,9 @@ impl<
                     }
 
                     if let Err(e) = if self.bt_model.lock().await.is_listening_to().is_some() {
-                        view_ch.send(Box::new(HrvView::new(self.acq_model.clone()))).await
+                        view_ch.send(Box::new(HrvView::new(self.acq_model.clone(), event_ch_tx.clone()))).await
                     } else {
-                        view_ch.send(Box::new(BluetoothView::new(self.bt_model.clone()))).await
+                        view_ch.send(Box::new(BluetoothView::new(self.bt_model.clone(),  event_ch_tx.clone()))).await
                         
                     } {
                         error!("Failed to send ViewState update: {}", e);
