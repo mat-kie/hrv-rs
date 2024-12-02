@@ -3,7 +3,7 @@
 //! This module defines events used for communication between different components
 //! of the HRV analysis tool. Events are central to the application's event-driven architecture.
 use btleplug::api::BDAddr;
-use std::sync::{Arc, Mutex};
+use std::{path::PathBuf, rc::Rc, sync::{Arc, Mutex}};
 use time::Duration;
 use uuid::Uuid;
 
@@ -70,7 +70,7 @@ pub enum HrvEvent {
 /// Enumeration of all application-level events.
 ///
 /// These events drive the interaction between views, controllers, and models.
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, Debug)]
 pub enum AppEvent {
     /// Bluetooth-related events.
     Bluetooth(BluetoothEvent),
@@ -84,5 +84,7 @@ pub enum AppEvent {
 
     /// A request to stop data acquisition.
     #[allow(dead_code)]
-    AcquisitionStopReq,
+    AcquisitionStopReq(PathBuf),
+
+    SelectModel(Arc<Mutex<dyn AcquisitionModelApi>>)
 }

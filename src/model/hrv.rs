@@ -45,7 +45,7 @@ pub struct HrvStatistics {
 ///
 /// Manages runtime data related to HRV analysis, including RR intervals, heart rate values,
 /// and the calculated HRV statistics.
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct HrvSessionData {
     /// RR intervals in milliseconds.
     pub rr_intervals: Vec<f64>,

@@ -3,13 +3,18 @@
 //! This module defines the controller responsible for managing data acquisition from BLE devices.
 //! It interacts with the acquisition model and coordinates data flow during HRV analysis.
 
-use std::sync::{Arc, Mutex};
+use std::{
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
 
 use crate::{core::events::HrvEvent, model::acquisition::AcquisitionModelApi};
 
 /// The `DataAcquisitionApi` trait defines the interface for controlling data acquisition.
 /// It provides methods for starting, storing, and discarding acquisitions, as well as handling events.
 pub trait DataAcquisitionApi {
+    /// Sets the model for the controller
+    fn set_model(&mut self, model: Arc<Mutex<dyn AcquisitionModelApi>>);
     /// Starts a new acquisition session.
     fn new_acquisition(&mut self);
 
@@ -17,7 +22,7 @@ pub trait DataAcquisitionApi {
     ///
     /// # Returns
     /// `Ok(())` if the operation succeeds, or an `Err(String)` if an error occurs.
-    fn store_acquisition(&mut self) -> Result<(), String>;
+    fn store_acquisition(&mut self, path: PathBuf) -> Result<(), String>;
 
     /// Discards the current acquisition session.
     #[allow(dead_code)]
@@ -39,12 +44,12 @@ pub trait DataAcquisitionApi {
 ///
 /// # Type Parameters
 /// * `AMT` - A type that implements the `AcquisitionModelApi` trait, representing the underlying data model.
-pub struct AcquisitionController<AMT: AcquisitionModelApi> {
+pub struct AcquisitionController {
     /// A thread-safe, shared reference to the acquisition model.
-    model: Arc<Mutex<AMT>>,
+    model: Arc<Mutex<dyn AcquisitionModelApi>>,
 }
 
-impl<AMT: AcquisitionModelApi> AcquisitionController<AMT> {
+impl AcquisitionController {
     /// Creates a new `AcquisitionController` instance.
     ///
     /// # Arguments
@@ -52,18 +57,20 @@ impl<AMT: AcquisitionModelApi> AcquisitionController<AMT> {
     ///
     /// # Returns
     /// A new instance of `AcquisitionController`.
-    pub fn new(model: Arc<Mutex<AMT>>) -> Self {
+    pub fn new(model: Arc<Mutex<dyn AcquisitionModelApi>>) -> Self {
         Self { model }
     }
 }
 
-impl<AMT: AcquisitionModelApi> DataAcquisitionApi for AcquisitionController<AMT> {
+impl DataAcquisitionApi for AcquisitionController {
+    fn set_model(&mut self, model: Arc<Mutex<dyn AcquisitionModelApi>>) {
+        self.model = model
+    }
     fn new_acquisition(&mut self) {
         // TODO: Implement logic to initiate a new acquisition.
     }
 
-    fn store_acquisition(&mut self) -> Result<(), String> {
-        self.model.lock().unwrap().store_acquisition();
+    fn store_acquisition(&mut self, path: PathBuf) -> Result<(), String> {
         Ok(())
     }
 

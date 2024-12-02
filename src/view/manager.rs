@@ -15,10 +15,12 @@ use eframe::App;
 use log::{error, info, warn};
 use std::{
     marker::PhantomData,
+    mem::MaybeUninit,
     sync::{Arc, Mutex},
 };
-use tokio::{
-    sync::broadcast::{error::RecvError, Sender},
+use tokio::sync::{
+    broadcast::{error::RecvError, Sender},
+    mpsc::{error::TryRecvError, Receiver},
 };
 
 /// `ViewManager<AHT>` structure.
@@ -27,8 +29,8 @@ use tokio::{
 /// This structure allows switching between multiple views and handles their lifecycle.
 pub struct ViewManager<AHT: AdapterHandle + Send> {
     /// Shared reference to the currently active view.
-    current_view: Arc<Mutex<Option<Box<dyn ViewApi>>>>,
-    /// Task handle for the view state update listener.
+    current_view: Option<Box<dyn ViewApi>>,
+    view_ch: Receiver<Box<dyn ViewApi>>,
     /// Event channel for sending application events from views.
     event_ch: Sender<AppEvent>,
     /// Marker to track the generic adapter handle type.
@@ -45,56 +47,15 @@ impl<AHT: AdapterHandle + Send + 'static> ViewManager<AHT> {
     /// # Returns
     /// A new instance of `ViewManager`.
     pub fn new(
-        mut rx_channel: tokio::sync::broadcast::Receiver<ViewState<AHT>>,
+        view_ch: tokio::sync::mpsc::Receiver<Box<dyn ViewApi>>,
         event_ch: Sender<AppEvent>,
     ) -> Self {
-        let current_view = Arc::new(Mutex::new(None));
-        let view_clone = Arc::clone(&current_view);
-
-        // Spawn a task to handle view state transitions.
-        tokio::spawn(async move {
-            loop {
-                match rx_channel.recv().await {
-                    Ok(state) => {
-                        info!("Received ViewState update");
-                        ViewManager::update_view(view_clone.clone(), state);
-                    }
-                    Err(RecvError::Closed) => {
-                        warn!("View state receiver channel closed.");
-                        break;
-                    }
-                    Err(RecvError::Lagged(count)) => {
-                        warn!("View state receiver lagged by {} messages.", count);
-                    }
-                }
-                tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
-            }
-        });
-
         Self {
-            current_view,
+            current_view: None,
+            view_ch,
             event_ch,
             _marker: Default::default(),
         }
-    }
-
-    /// Updates the current view based on the given `ViewState`.
-    ///
-    /// # Arguments
-    /// * `current_view` - A shared reference to the current view.
-    /// * `state` - The new `ViewState` to transition to.
-    fn update_view(current_view: Arc<Mutex<Option<Box<dyn ViewApi>>>>, state: ViewState<AHT>) {
-        let mut view_guard = current_view.lock().unwrap();
-        *view_guard = match state {
-            ViewState::BluetoothSelectorView(model) => {
-                info!("Switching to BluetoothSelectorView");
-                Some(Box::new(BluetoothView::new(model)))
-            }
-            ViewState::AcquisitionView(model) => {
-                info!("Switching to AcquisitionView");
-                Some(Box::new(HrvView::new(model)))
-            }
-        };
     }
 }
 
@@ -107,20 +68,22 @@ impl<AHT: AdapterHandle + Send> App for ViewManager<AHT> {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // TODO: make adjustable
         ctx.set_pixels_per_point(1.5);
-        match self.current_view.lock() {
-            Ok(view_guard) => {
-                if let Some(view) = &*view_guard {
-                    if let Some(event) = view.render(ctx) {
-                        if let Err(err) = self.event_ch.send(event) {
-                            error!("Failed to send view event: {}", err);
-                        }
-                    }
-                } else {
-                    warn!("No active view to render.");
+
+        match self.view_ch.try_recv() {
+            Ok(new_view) => {
+                self.current_view = Some(new_view);
+            }
+            Err(e) => {
+                if e == TryRecvError::Disconnected {
+                    warn!("ViewManager: view channel disconnected!");
                 }
             }
-            Err(err) => {
-                error!("Failed to acquire lock on current view: {}", err);
+        }
+        if let Some(view) = &self.current_view {
+            if let Some(event) = view.render(ctx) {
+                if let Err(err) = self.event_ch.send(event) {
+                    error!("Failed to send view event: {}", err);
+                }
             }
         }
     }

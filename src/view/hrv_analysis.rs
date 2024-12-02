@@ -136,9 +136,9 @@ impl HrvView {
         evt
     }
 
-    fn render_acq(&self, model: &dyn AcquisitionModelApi, ui: &mut egui::Ui) {
+    fn render_acq(&self, model: &dyn AcquisitionModelApi, ui: &mut egui::Ui)->Option<AppEvent> {
         ui.heading("Acquisition");
-        egui::Grid::new("acq grid").num_columns(2).show(ui, |ui| {
+        let inner_event = egui::Grid::new("acq grid").num_columns(2).show(ui, |ui| {
             let desc = egui::Label::new("Elapsed time: ");
             ui.add(desc);
             let val = egui::Label::new(format!(
@@ -150,12 +150,22 @@ impl HrvView {
             ));
             ui.add(val);
             ui.end_row();
-            ui.button("Restart");
-            ui.button("Stop & Save");
+            if ui.button("Restart").clicked(){
+                return Some(AppEvent::AcquisitionStartReq)
+            }
+            if ui.button("Stop & Save").clicked(){
+                let selected = rfd::FileDialog::new().save_file();
+                if let Some(path) = selected {
+                    return Some(AppEvent::AcquisitionStopReq(path))
+                }
+            }
             ui.end_row();
-        });
+            None
+        }).inner;
         ui.separator();
+        return inner_event
     }
+    
     /// Renders the Poincare plot.
     ///
     /// Displays a scatter plot of RR interval data to visualize short- and long-term HRV.

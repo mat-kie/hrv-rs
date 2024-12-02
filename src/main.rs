@@ -61,6 +61,8 @@ mod view {
     pub mod hrv_analysis;
     /// View manager for coordinating multiple views.
     pub mod manager;
+    /// View for model initialization
+    pub mod model_initializer;
 }
 
 /// Main entry point of the application.

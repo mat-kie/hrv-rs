@@ -13,7 +13,7 @@ use time::{Duration, OffsetDateTime};
 ///
 /// Defines the interface for managing acquisition-related data, including runtime measurements,
 /// HRV statistics, and stored acquisitions.
-pub trait AcquisitionModelApi: Debug + Send {
+pub trait AcquisitionModelApi: Debug + Send + Sync{
     /// Retrieves the start time of the current acquisition.
     ///
     /// # Returns
@@ -75,13 +75,13 @@ pub trait AcquisitionModelApi: Debug + Send {
 }
 
 /// Holds the model's stored data, including athlete information and measurements.
-#[derive(Serialize, Deserialize, Default, Debug)]
+#[derive(Serialize, Deserialize, Default, Debug, Clone)]
 pub struct ModelData {
     measurements: Vec<Acquisition>,
 }
 
 /// Represents the acquisition model, managing HRV-related data and operations.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct AcquisitionModel {
     data: ModelData,
     rt_data: HrvSessionData,
