@@ -4,9 +4,10 @@
 //! It includes structures and methods for rendering the Bluetooth device selector and interaction UI.
 
 use log::error;
+use time::macros::format_description;
 use std::sync::Arc;
 use tokio::sync::{mpsc::Sender, Mutex};
-
+use crate::core::constants::DATE_TIME_STRING_FORMAT;
 use crate::{
     core::{
         events::{AppEvent, BluetoothEvent},
@@ -42,16 +43,26 @@ impl ViewApi for StorageView {
     }
 
     fn render(&mut self, ctx: &egui::Context) -> Result<(), String> {
+      let fd = format_description!("[year]-[month]-[day] [hour]:[minute]");
         egui::SidePanel::left("left_overview").show(ctx, |ui|{
           let model = self.model.blocking_lock();
           for acq in model.get_acquisitions(){
-            if ui.button(format!("{:?}",acq.blocking_lock().get_start_time())).clicked(){
+            if ui.button(format!("{}",acq.blocking_lock().get_start_time().format(fd).unwrap())).clicked(){
               self.selected = Some(acq.clone());
             }
           }
+          ui.separator();
           if ui.button("New Acquisition").clicked(){
             self.event(AppEvent::SelectDevice);
           }
+          ui.separator();
+          if ui.button("Store database").clicked(){
+            if let Some(file) = rfd::FileDialog::new().save_file()
+            {
+              self.event(AppEvent::StoreModel(file));
+            }
+          }
+          
         });
 
         if let Some(selected) = &self.selected{

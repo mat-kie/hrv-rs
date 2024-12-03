@@ -22,7 +22,7 @@ pub trait AcquisitionModelApi: Debug + Send + Sync{
     /// # Returns
     /// An optional `OffsetDateTime` indicating the start time, if available.
     #[allow(dead_code)]
-    fn get_start_time(&self) -> Option<OffsetDateTime>;
+    fn get_start_time(&self) ->OffsetDateTime;
 
     /// Retrieves the last heart rate message received.
     ///
@@ -73,6 +73,8 @@ pub trait AcquisitionModelApi: Debug + Send + Sync{
     fn get_session_data(&self)->&HrvSessionData;
 
     fn get_messages(&self)->&[(Duration, HeartrateMessage)];
+
+    fn get_elapsed_time(&self)->Duration;
 
 }
 
@@ -145,27 +147,19 @@ impl AcquisitionModel {
         self.update();
     }
 
-    /// Retrieves all measurements.
-    pub fn get_measurements(&self) -> &[(Duration, HeartrateMessage)] {
-        &self.measurements
-    }
-
-    /// Stores the model to a file.
-    pub fn store(&self, path: PathBuf) -> Result<(), String> {
-        let json = serde_json::to_string(self).map_err(|e| e.to_string())?;
-        fs::write(&path, json).map_err(|e| e.to_string())
-    }
-
-    /// Loads the model from a file.
-    pub fn from_file(path: PathBuf) -> Result<Arc<Mutex<Self>>, String> {
-        let json = fs::read_to_string(&path).map_err(|e| e.to_string())?;
-        let model: Self = serde_json::from_str(&json).map_err(|e| e.to_string())?;
-        Ok(Arc::new(Mutex::new(model)))
-    }
 }
 
 #[typetag::serde]
 impl AcquisitionModelApi for AcquisitionModel {
+
+    fn get_elapsed_time(&self)->Duration{
+        if self.measurements.is_empty(){
+            return Duration::default()
+        }else{
+            let (ts, _) = self.measurements.last().unwrap();
+            return ts.clone()
+        }
+    }
 
     fn reset(&mut self){
         self.measurements.clear();
@@ -187,8 +181,8 @@ impl AcquisitionModelApi for AcquisitionModel {
         self.sessiondata.get_poincare()
     }
 
-    fn get_start_time(&self) -> Option<OffsetDateTime> {
-        Some(self.start_time)
+    fn get_start_time(&self) -> OffsetDateTime {
+        self.start_time.clone()
     }
 
     fn get_last_msg(&self) -> Option<HeartrateMessage> {

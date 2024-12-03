@@ -19,6 +19,7 @@ use crate::{
 
 use eframe::App;
 use log::{error, info};
+use nalgebra::storage;
 use std::{marker::PhantomData, sync::Arc};
 use tokio::sync::Mutex;
 use tokio::{fs, sync::mpsc::Sender};
@@ -35,6 +36,7 @@ pub struct AppController<
     //ACMT: AcquisitionModelApi + Send + 'static,
 > {
     view: Arc<Mutex<Box<dyn ViewApi>>>,
+    storage : Arc<Mutex<StorageModel>>,
     _task_handle: JoinHandle<()>,
     /// Marker for type parameter `AHT`.
     _marker: PhantomData<AHT>,
@@ -73,11 +75,14 @@ impl<
             Box::new(ModelInitView::new(event_tx.clone())),
         ));
         let _ = event_tx.try_send(AppEvent::Bluetooth(BluetoothEvent::DiscoverAdapters));
+        let storage = Arc::new(Mutex::new(StorageModel::default()));
         Self {
             view: view.clone(),
+            storage:storage.clone(),
             _task_handle: tokio::spawn(Self::event_handler(
                 ble_controller,
                 acq_controller,
+                storage,
                 view,
                 event_rx,
                 event_tx,
@@ -101,12 +106,13 @@ impl<
     async fn event_handler(
         mut ble_controller: BTCT,
         mut acq_controller: ACT,
+        storage: Arc<Mutex<StorageModel>>,
         view: Arc<tokio::sync::Mutex<Box<dyn ViewApi>>>,
         mut event_ch_rx: Receiver<AppEvent>,
         event_ch_tx: Sender<AppEvent>,
         gui_ctx: egui::Context,
     ) {
-        let mut storage = Arc::new(Mutex::new(StorageModel::default()));
+        
         while let Some(evt) = event_ch_rx.recv().await {
             match evt {
                 AppEvent::Bluetooth(btev) => {
@@ -120,7 +126,7 @@ impl<
                     }
                 }
                 AppEvent::NewAcquisition => {
-                    let _ = acq_controller.reset_acquisition().await;
+                    let _ = acq_controller.new_acquisition();
                     *view.lock().await = Box::new(HrvView::new(
                         acq_controller.get_acquisition(),
                         event_ch_tx.clone(),
@@ -161,13 +167,14 @@ impl<
                 }
 
                 AppEvent::NewModel => {
-                    storage = Arc::new(Mutex::new(StorageModel::default()));
+                    //storage = Arc::new(Mutex::new(StorageModel::default()));
                     *view.lock().await = Box::new(StorageView::new(storage.clone(), event_ch_tx.clone()));
                 }
                 AppEvent::StoreAcquisition => {
                     let acq = acq_controller.get_acquisition();
                     storage.lock().await.store_acquisition(acq);
                     *view.lock().await = Box::new(StorageView::new(storage.clone(), event_ch_tx.clone()));
+                    event_ch_tx.send(AppEvent::Bluetooth(BluetoothEvent::StopListening)).await;
                 },
                 AppEvent::SelectDevice=>{
                     *view.lock().await = Box::new(BluetoothView::new(ble_controller.get_model().clone(), event_ch_tx.clone()));

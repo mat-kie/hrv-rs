@@ -36,18 +36,17 @@ pub fn render_stats(ui: &mut egui::Ui, model: &dyn AcquisitionModelApi, hr: f64)
         let val = egui::Label::new(format!("{:.2} BPM", hr));
         ui.add(val);
         ui.end_row();
-        let desc = egui::Label::new("Elapsed time: ");
-        ui.add(desc);
-        let val = egui::Label::new(format!(
-            "{} s",
-            model
-                .get_start_time()
-                .map(|o| { (OffsetDateTime::now_utc() - o).whole_seconds() })
-                .unwrap_or(0)
-        ));
-        ui.add(val);
-        ui.end_row();
+        
 
+            let desc = egui::Label::new("Elapsed time: ");
+            ui.add(desc);
+            let val = egui::Label::new(format!(
+                "{} s",model.get_elapsed_time().whole_seconds()
+            ));
+            ui.add(val);
+            ui.end_row();
+    
+        
         if let Some(stats) = model.get_hrv_stats() {
             let desc = egui::Label::new("RMSSD [ms]");
             ui.add(desc);

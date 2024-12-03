@@ -5,7 +5,7 @@
 
 use std::{future::Future, pin::Pin, sync::Arc};
 
-use crate::{core::events::HrvEvent, model::acquisition::AcquisitionModelApi};
+use crate::{core::events::HrvEvent, model::acquisition::{AcquisitionModel, AcquisitionModelApi}};
 use tokio::sync::Mutex;
 
 /// The `DataAcquisitionApi` trait defines the interface for controlling data acquisition.
@@ -17,6 +17,8 @@ pub trait DataAcquisitionApi {
     fn reset_acquisition<'a>(
         &'a self
     ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>>;
+
+    fn new_acquisition(&mut self);
 
     fn start_acquisition(&mut self);
     fn stop_acquisition(&mut self);
@@ -70,10 +72,16 @@ impl DataAcquisitionApi for AcquisitionController {
             &'a self
         ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>> {
         Box::pin(async move{
-            self.model.lock().await.reset();
+       //     self.model.lock().await.reset();
+       
             Ok(())
         })
     }
+
+    fn new_acquisition(&mut self) {
+        self.model = Arc::new(Mutex::new(Box::new(AcquisitionModel::default())));        
+    }
+    
 fn start_acquisition(&mut self) {
     self.acquiring = true;
 }    
