@@ -19,12 +19,10 @@ use crate::{
 
 use eframe::App;
 use log::{error, info};
-use std::{
-    marker::PhantomData,
-    sync::{Arc, Mutex},
-};
+use std::{marker::PhantomData, sync::Arc};
 use tokio::sync::mpsc::Receiver;
 use tokio::sync::mpsc::Sender;
+use tokio::sync::Mutex;
 
 /// Main application controller.
 ///
@@ -128,7 +126,7 @@ impl<
                     }
                 }
                 AppEvent::Data(hrev) => {
-                    if let Err(e) = acq_controller.handle_event(hrev) {
+                    if let Err(e) = acq_controller.handle_event(hrev).await {
                         error!("Failed to handle HRV event: {}", e);
                     }
                 }

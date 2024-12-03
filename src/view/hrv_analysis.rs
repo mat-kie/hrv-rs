@@ -11,12 +11,10 @@ use eframe::egui;
 use egui::Color32;
 use egui_plot::{Legend, Plot, Points};
 use log::{error, info};
-use std::{
-    ops::RangeInclusive,
-    sync::{Arc, Mutex},
-};
+use std::{ops::RangeInclusive, sync::Arc};
 use time::{Duration, OffsetDateTime};
 use tokio::sync::mpsc::Sender;
+use tokio::sync::Mutex;
 
 /// `HrvView` structure.
 ///
@@ -85,74 +83,65 @@ impl HrvView {
         ui.separator();
     }
 
-    fn render_settings(
-        &self,
-        model: &dyn AcquisitionModelApi,
-        ui: &mut egui::Ui,
-    ){
+    fn render_settings(&self, model: &dyn AcquisitionModelApi, ui: &mut egui::Ui) {
         ui.heading("Settings");
-        egui::Grid::new("a grid")
-            .num_columns(2)
-            .show(ui, |ui| {
-                let mut seconds = model
-                    .get_stats_window()
-                    .unwrap_or(Duration::minutes(5))
-                    .as_seconds_f64();
-                let desc = egui::Label::new("time window [s]");
-                ui.add(desc);
-                let slider = egui::Slider::new(&mut seconds, RangeInclusive::new(0.0, 600.0));
-                if ui.add(slider).changed() {
-                    if let Some(new_duration) = Duration::checked_seconds_f64(seconds) {
-                        info!("changed value to: {}", seconds);
-                        self.event(AppEvent::Data(
-                            crate::core::events::HrvEvent::TimeWindowChanged(new_duration),
-                        ));
-                    }
-                }
-                ui.end_row();
-                let mut outlier_value = model.get_outlier_filter_value();
-                let desc = egui::Label::new("outlier filter");
-                ui.add(desc);
-                let slider = egui::Slider::new(&mut outlier_value, RangeInclusive::new(0.0, 10.0));
-                if ui.add(slider).changed() {
-                    info!("changed value to: {}", outlier_value);
+        egui::Grid::new("a grid").num_columns(2).show(ui, |ui| {
+            let mut seconds = model
+                .get_stats_window()
+                .unwrap_or(Duration::minutes(5))
+                .as_seconds_f64();
+            let desc = egui::Label::new("time window [s]");
+            ui.add(desc);
+            let slider = egui::Slider::new(&mut seconds, RangeInclusive::new(0.0, 600.0));
+            if ui.add(slider).changed() {
+                if let Some(new_duration) = Duration::checked_seconds_f64(seconds) {
+                    info!("changed value to: {}", seconds);
                     self.event(AppEvent::Data(
-                        crate::core::events::HrvEvent::OutlierFilterChanged(outlier_value),
+                        crate::core::events::HrvEvent::TimeWindowChanged(new_duration),
                     ));
                 }
-                ui.end_row();
-            });
+            }
+            ui.end_row();
+            let mut outlier_value = model.get_outlier_filter_value();
+            let desc = egui::Label::new("outlier filter");
+            ui.add(desc);
+            let slider = egui::Slider::new(&mut outlier_value, RangeInclusive::new(0.0, 10.0));
+            if ui.add(slider).changed() {
+                info!("changed value to: {}", outlier_value);
+                self.event(AppEvent::Data(
+                    crate::core::events::HrvEvent::OutlierFilterChanged(outlier_value),
+                ));
+            }
+            ui.end_row();
+        });
         ui.separator();
     }
 
-    fn render_acq(&self, model: &dyn AcquisitionModelApi, ui: &mut egui::Ui){
+    fn render_acq(&self, model: &dyn AcquisitionModelApi, ui: &mut egui::Ui) {
         ui.heading("Acquisition");
-        egui::Grid::new("acq grid")
-            .num_columns(2)
-            .show(ui, |ui| {
-                let desc = egui::Label::new("Elapsed time: ");
-                ui.add(desc);
-                let val = egui::Label::new(format!(
-                    "{} s",
-                    model
-                        .get_start_time()
-                        .map(|o| { (OffsetDateTime::now_utc() - o).whole_seconds() })
-                        .unwrap_or(0)
-                ));
-                ui.add(val);
-                ui.end_row();
-                if ui.button("Restart").clicked() {
-                    self.event(AppEvent::AcquisitionStartReq);
+        egui::Grid::new("acq grid").num_columns(2).show(ui, |ui| {
+            let desc = egui::Label::new("Elapsed time: ");
+            ui.add(desc);
+            let val = egui::Label::new(format!(
+                "{} s",
+                model
+                    .get_start_time()
+                    .map(|o| { (OffsetDateTime::now_utc() - o).whole_seconds() })
+                    .unwrap_or(0)
+            ));
+            ui.add(val);
+            ui.end_row();
+            if ui.button("Restart").clicked() {
+                self.event(AppEvent::AcquisitionStartReq);
+            }
+            if ui.button("Stop & Save").clicked() {
+                let selected = rfd::FileDialog::new().save_file();
+                if let Some(path) = selected {
+                    self.event(AppEvent::AcquisitionStopReq(path));
                 }
-                if ui.button("Stop & Save").clicked() {
-                    let selected = rfd::FileDialog::new().save_file();
-                    if let Some(path) = selected {
-                        self.event(AppEvent::AcquisitionStopReq(path));
-                    }
-                }
-                ui.end_row();
-                
-            });
+            }
+            ui.end_row();
+        });
         ui.separator();
     }
 
@@ -207,17 +196,15 @@ impl ViewApi for HrvView {
         // Extract HRV statistics and Poincare plot points from the model.
 
         // Render the left panel with HRV statistics.
-        let model = self.model.lock().unwrap();
-        egui::SidePanel::left("left_sidebar")
-            .show(ctx, |ui| {
-                let msg = model.get_last_msg();
-                self.render_settings(&*model, ui);
-                if let Some(msg) = msg {
-                    self.render_statistics(ui, &*model, &msg);
-                }
-                self.render_acq(&*model, ui);
-                
-            });
+        let model = self.model.blocking_lock();
+        egui::SidePanel::left("left_sidebar").show(ctx, |ui| {
+            let msg = model.get_last_msg();
+            self.render_settings(&*model, ui);
+            if let Some(msg) = msg {
+                self.render_statistics(ui, &*model, &msg);
+            }
+            self.render_acq(&*model, ui);
+        });
 
         // Render the central panel with the Poincare plot.
         egui::CentralPanel::default().show(ctx, |ui| {

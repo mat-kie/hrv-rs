@@ -92,7 +92,7 @@ fn main() {
     let bluetooth_model = Arc::new(Mutex::new(BluetoothModel::<BluetoothAdapter>::default()));
 
     // Shared state for acquisition model.
-    let acquisition_model = Arc::new(std::sync::Mutex::new(AcquisitionModel::default()));
+    let acquisition_model = Arc::new(Mutex::new(AcquisitionModel::default()));
 
     // Initialize application controller with models and controllers.
     

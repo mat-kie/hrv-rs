@@ -3,12 +3,10 @@
 //! This module defines the controller responsible for managing data acquisition from BLE devices.
 //! It interacts with the acquisition model and coordinates data flow during HRV analysis.
 
-use std::{
-    path::PathBuf,
-    sync::{Arc, Mutex},
-};
+use std::{future::Future, path::PathBuf, pin::Pin, sync::Arc};
 
 use crate::{core::events::HrvEvent, model::acquisition::AcquisitionModelApi};
+use tokio::sync::Mutex;
 
 /// The `DataAcquisitionApi` trait defines the interface for controlling data acquisition.
 /// It provides methods for starting, storing, and discarding acquisitions, as well as handling events.
@@ -35,8 +33,12 @@ pub trait DataAcquisitionApi {
     ///
     /// # Returns
     /// `Ok(())` if the event is handled successfully, or an `Err(String)` if an error occurs.
-    #[allow(dead_code)]
-    fn handle_event(&mut self, event: HrvEvent) -> Result<(), String>;
+    fn handle_event<'a>(
+        &'a mut self,
+         event: HrvEvent
+    ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>>;
+
+
 }
 
 /// The `AcquisitionController` struct implements the `DataAcquisitionApi` trait and manages
@@ -75,22 +77,27 @@ impl DataAcquisitionApi for AcquisitionController {
     }
 
     fn discard_acquisition(&mut self) {
-       // self.model.lock().unwrap().discard_acquisition();
+        // self.model.lock().unwrap().discard_acquisition();
     }
 
-    fn handle_event(&mut self, event: HrvEvent) -> Result<(), String> {
-        match event {
-            HrvEvent::HrMessage(msg) => {
-                self.model.lock().unwrap().add_measurement(&msg);
+    
+
+    fn handle_event<'a>(&'a mut self, event: HrvEvent) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>> {
+        Box::pin(async move{
+
+            match event {
+                HrvEvent::HrMessage(msg) => {
+                    self.model.lock().await.add_measurement(&msg);
+                }
+                HrvEvent::TimeWindowChanged(time) => {
+                    self.model.lock().await.set_stats_window(&time);
+                }
+                HrvEvent::OutlierFilterChanged(val) => {
+                    // TODO: Implement outlier filter update logic.
+                    self.model.lock().await.set_outlier_filter_value(val);
+                }
             }
-            HrvEvent::TimeWindowChanged(time) => {
-                self.model.lock().unwrap().set_stats_window(&time);
-            }
-            HrvEvent::OutlierFilterChanged(val) => {
-                // TODO: Implement outlier filter update logic.
-                self.model.lock().unwrap().set_outlier_filter_value(val);
-            }
-        }
-        Ok(())
+            Ok(())
+        })
     }
 }
