@@ -415,7 +415,8 @@ impl AdapterHandle for BluetoothAdapter {
                         || tx
                             .send(AppEvent::Data(HrvEvent::HrMessage(HeartrateMessage::new(
                                 &data.value,
-                            )))).await
+                            ))))
+                            .await
                             .is_err()
                     {
                         break;
@@ -496,12 +497,15 @@ impl AdapterHandle for MockAdapterHandle {
             if peripheral == BDAddr::from([0, 1, 2, 3, 4, 5]) {
                 Ok(tokio::spawn(async move {
                     let mut rng = rand::rngs::StdRng::seed_from_u64(42);
-                   loop {
-                    let val: u16 = 900 + rng.gen_range(0..200);
-                        let data: [u8; 4] = [0b10000, 60, (val&255) as _, ((val>>8)&255)as _];
-                        let _ = _tx.send(AppEvent::Data(HrvEvent::HrMessage(
-                            HeartrateMessage::new(&data),
-                        ))).await;
+                    loop {
+                        let val: u16 = 900 + rng.gen_range(0..200);
+                        let data: [u8; 4] =
+                            [0b10000, 60, (val & 255) as _, ((val >> 8) & 255) as _];
+                        let _ = _tx
+                            .send(AppEvent::Data(HrvEvent::HrMessage(HeartrateMessage::new(
+                                &data,
+                            ))))
+                            .await;
 
                         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
                     }

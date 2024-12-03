@@ -89,9 +89,9 @@ impl HrvView {
         &self,
         model: &dyn AcquisitionModelApi,
         ui: &mut egui::Ui,
-    ) -> Option<AppEvent> {
+    ){
         ui.heading("Settings");
-        let evt = egui::Grid::new("a grid")
+        egui::Grid::new("a grid")
             .num_columns(2)
             .show(ui, |ui| {
                 let mut seconds = model
@@ -101,42 +101,33 @@ impl HrvView {
                 let desc = egui::Label::new("time window [s]");
                 ui.add(desc);
                 let slider = egui::Slider::new(&mut seconds, RangeInclusive::new(0.0, 600.0));
-                let evt = if ui.add(slider).changed() {
+                if ui.add(slider).changed() {
                     if let Some(new_duration) = Duration::checked_seconds_f64(seconds) {
                         info!("changed value to: {}", seconds);
-                        Some(AppEvent::Data(
+                        self.event(AppEvent::Data(
                             crate::core::events::HrvEvent::TimeWindowChanged(new_duration),
-                        ))
-                    } else {
-                        None
+                        ));
                     }
-                } else {
-                    None
-                };
+                }
                 ui.end_row();
                 let mut outlier_value = model.get_outlier_filter_value();
                 let desc = egui::Label::new("outlier filter");
                 ui.add(desc);
                 let slider = egui::Slider::new(&mut outlier_value, RangeInclusive::new(0.0, 10.0));
-                let evt2 = if ui.add(slider).changed() {
+                if ui.add(slider).changed() {
                     info!("changed value to: {}", outlier_value);
-                    Some(AppEvent::Data(
+                    self.event(AppEvent::Data(
                         crate::core::events::HrvEvent::OutlierFilterChanged(outlier_value),
-                    ))
-                } else {
-                    None
-                };
+                    ));
+                }
                 ui.end_row();
-                evt.or(evt2)
-            })
-            .inner;
+            });
         ui.separator();
-        evt
     }
 
-    fn render_acq(&self, model: &dyn AcquisitionModelApi, ui: &mut egui::Ui) -> Option<AppEvent> {
+    fn render_acq(&self, model: &dyn AcquisitionModelApi, ui: &mut egui::Ui){
         ui.heading("Acquisition");
-        let inner_event = egui::Grid::new("acq grid")
+        egui::Grid::new("acq grid")
             .num_columns(2)
             .show(ui, |ui| {
                 let desc = egui::Label::new("Elapsed time: ");
@@ -151,20 +142,18 @@ impl HrvView {
                 ui.add(val);
                 ui.end_row();
                 if ui.button("Restart").clicked() {
-                    return Some(AppEvent::AcquisitionStartReq);
+                    self.event(AppEvent::AcquisitionStartReq);
                 }
                 if ui.button("Stop & Save").clicked() {
                     let selected = rfd::FileDialog::new().save_file();
                     if let Some(path) = selected {
-                        return Some(AppEvent::AcquisitionStopReq(path));
+                        self.event(AppEvent::AcquisitionStopReq(path));
                     }
                 }
                 ui.end_row();
-                None
-            })
-            .inner;
+                
+            });
         ui.separator();
-        inner_event
     }
 
     /// Renders the Poincare plot.

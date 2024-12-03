@@ -55,6 +55,7 @@ mod model {
     pub mod bluetooth;
     /// Model for HRV-related data storage and processing.
     pub mod hrv;
+    pub mod storage;
 }
 
 /// UI-related components for the application.

@@ -75,7 +75,7 @@ impl DataAcquisitionApi for AcquisitionController {
     }
 
     fn discard_acquisition(&mut self) {
-        self.model.lock().unwrap().discard_acquisition();
+       // self.model.lock().unwrap().discard_acquisition();
     }
 
     fn handle_event(&mut self, event: HrvEvent) -> Result<(), String> {
