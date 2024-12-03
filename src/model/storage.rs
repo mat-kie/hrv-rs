@@ -12,7 +12,7 @@ pub trait StorageModelApi {
     fn delete_acquisition(&mut self, idx: usize);
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct StorageModel {
     acquisitions: Vec<Arc<Mutex<Box<dyn AcquisitionModelApi>>>>,
 }

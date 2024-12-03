@@ -3,14 +3,12 @@
 //! This module defines events used for communication between different components
 //! of the HRV analysis tool. Events are central to the application's event-driven architecture.
 use btleplug::api::BDAddr;
-use std::{path::PathBuf, sync::{Arc, Mutex}};
+use std::{path::PathBuf, sync::Arc};
 use time::Duration;
+use tokio::sync::Mutex;
 use uuid::Uuid;
 
-use crate::model::{
-    acquisition::AcquisitionModelApi,
-    bluetooth::HeartrateMessage,
-};
+use crate::model::{acquisition::AcquisitionModelApi, bluetooth::HeartrateMessage};
 
 /// Enumeration of Bluetooth-related events.
 ///
@@ -52,26 +50,25 @@ pub enum HrvEvent {
 
     /// An incoming heart rate message for processing.
     HrMessage(HeartrateMessage),
+    /// A request to start data acquisition.
+    AcquisitionStartReq,
+    /// A request to stop data acquisition.
+    AcquisitionStopReq,
 }
 
 /// Enumeration of all application-level events.
 ///
 /// These events drive the interaction between views, controllers, and models.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub enum AppEvent {
     /// Bluetooth-related events.
     Bluetooth(BluetoothEvent),
-
     /// HRV data-related events, such as updates or parameter changes.
     Data(HrvEvent),
-
-    /// A request to start data acquisition.
-    #[allow(dead_code)]
-    AcquisitionStartReq,
-
-    /// A request to stop data acquisition.
-    #[allow(dead_code)]
-    AcquisitionStopReq(PathBuf),
-
-    SelectModel(Arc<Mutex<dyn AcquisitionModelApi>>)
+    NewAcquisition,
+    DiscardAcquisition,
+    StoreAcquisition,
+    NewModel,
+    LoadModel(PathBuf),
+    StoreModel(PathBuf),
 }

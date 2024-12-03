@@ -4,7 +4,7 @@
 //! It includes structures and methods for rendering statistical data, charts, and user interface components.
 
 use crate::{
-    core::{events::AppEvent, view_trait::ViewApi},
+    core::{events::{AppEvent, HrvEvent}, view_trait::ViewApi},
     model::{acquisition::AcquisitionModelApi, bluetooth::HeartrateMessage},
 };
 use eframe::egui;
@@ -132,13 +132,12 @@ impl HrvView {
             ui.add(val);
             ui.end_row();
             if ui.button("Restart").clicked() {
-                self.event(AppEvent::AcquisitionStartReq);
+                self.event(AppEvent::NewAcquisition);
+                self.event(AppEvent::Data(HrvEvent::AcquisitionStartReq));
             }
             if ui.button("Stop & Save").clicked() {
-                let selected = rfd::FileDialog::new().save_file();
-                if let Some(path) = selected {
-                    self.event(AppEvent::AcquisitionStopReq(path));
-                }
+                self.event(AppEvent::Data(HrvEvent::AcquisitionStopReq));
+                self.event(AppEvent::StoreAcquisition);
             }
             ui.end_row();
         });

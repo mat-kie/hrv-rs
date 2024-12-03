@@ -15,6 +15,8 @@ use time::{Duration, OffsetDateTime};
 /// HRV statistics, and stored acquisitions.
 #[typetag::serde(tag="type")]
 pub trait AcquisitionModelApi: Debug + Send + Sync{
+
+    fn reset(&mut self);
     /// Retrieves the start time of the current acquisition.
     ///
     /// # Returns
@@ -164,6 +166,11 @@ impl AcquisitionModel {
 
 #[typetag::serde]
 impl AcquisitionModelApi for AcquisitionModel {
+
+    fn reset(&mut self){
+        self.measurements.clear();
+        self.start_time = OffsetDateTime::now_utc();
+    }
 
     fn get_messages(&self)->&[(Duration, HeartrateMessage)] {
         &self.measurements

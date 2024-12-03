@@ -106,7 +106,7 @@ fn main() {
                 bluetooth_model.clone(),
                 acquisition_model.clone(),
                 BluetoothController::new(bluetooth_model.clone()),
-                AcquisitionController::new(acquisition_model.clone()),
+                AcquisitionController::new::<AcquisitionModel>(),
                 cc.egui_ctx.clone()
             )))
         }),

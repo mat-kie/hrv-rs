@@ -12,19 +12,15 @@ use tokio::sync::Mutex;
 /// It provides methods for starting, storing, and discarding acquisitions, as well as handling events.
 pub trait DataAcquisitionApi {
     /// Sets the model for the controller
-    fn set_model(&mut self, model: Arc<Mutex<dyn AcquisitionModelApi>>);
+    fn get_acquisition(&self)-> Arc<Mutex<dyn AcquisitionModelApi>>;
     /// Starts a new acquisition session.
-    fn new_acquisition(&mut self);
+    fn reset_acquisition<'a>(
+        &'a self
+    ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>>;
 
-    /// Stores the current acquisition session in the model.
-    ///
-    /// # Returns
-    /// `Ok(())` if the operation succeeds, or an `Err(String)` if an error occurs.
-    fn store_acquisition(&mut self, path: PathBuf) -> Result<(), String>;
+    fn start_acquisition(&mut self);
+    fn stop_acquisition(&mut self);
 
-    /// Discards the current acquisition session.
-    #[allow(dead_code)]
-    fn discard_acquisition(&mut self);
 
     /// Handles an incoming HRV event and updates the model accordingly.
     ///
@@ -49,6 +45,7 @@ pub trait DataAcquisitionApi {
 pub struct AcquisitionController {
     /// A thread-safe, shared reference to the acquisition model.
     model: Arc<Mutex<dyn AcquisitionModelApi>>,
+    acquiring: bool
 }
 
 impl AcquisitionController {
@@ -59,35 +56,39 @@ impl AcquisitionController {
     ///
     /// # Returns
     /// A new instance of `AcquisitionController`.
-    pub fn new(model: Arc<Mutex<dyn AcquisitionModelApi>>) -> Self {
-        Self { model }
+    pub fn new<AC:AcquisitionModelApi + Default + 'static>() -> Self {
+        let  model: Arc<Mutex<dyn AcquisitionModelApi>> = Arc::new(Mutex::new(AC::default()));
+        Self { model, acquiring:false }
     }
 }
 
 impl DataAcquisitionApi for AcquisitionController {
-    fn set_model(&mut self, model: Arc<Mutex<dyn AcquisitionModelApi>>) {
-        self.model = model
+    fn get_acquisition(&self)-> Arc<Mutex<dyn AcquisitionModelApi>> {
+        self.model.clone()
     }
-    fn new_acquisition(&mut self) {
-        // TODO: Implement logic to initiate a new acquisition.
+    fn reset_acquisition<'a>(
+            &'a self
+        ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>> {
+        Box::pin(async move{
+            self.model.lock().await.reset();
+            Ok(())
+        })
     }
-
-    fn store_acquisition(&mut self, path: PathBuf) -> Result<(), String> {
-        Ok(())
-    }
-
-    fn discard_acquisition(&mut self) {
-        // self.model.lock().unwrap().discard_acquisition();
-    }
-
-    
+fn start_acquisition(&mut self) {
+    self.acquiring = true;
+}    
+fn stop_acquisition(&mut self) {
+    self.acquiring = false;
+}
 
     fn handle_event<'a>(&'a mut self, event: HrvEvent) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>> {
         Box::pin(async move{
 
             match event {
                 HrvEvent::HrMessage(msg) => {
-                    self.model.lock().await.add_measurement(&msg);
+                    if self.acquiring{
+                        self.model.lock().await.add_measurement(&msg);
+                    }
                 }
                 HrvEvent::TimeWindowChanged(time) => {
                     self.model.lock().await.set_stats_window(&time);
@@ -95,6 +96,12 @@ impl DataAcquisitionApi for AcquisitionController {
                 HrvEvent::OutlierFilterChanged(val) => {
                     // TODO: Implement outlier filter update logic.
                     self.model.lock().await.set_outlier_filter_value(val);
+                }
+                HrvEvent::AcquisitionStartReq=>{
+                    self.acquiring = true
+                }
+                HrvEvent::AcquisitionStopReq=>{
+                    self.acquiring = false
                 }
             }
             Ok(())

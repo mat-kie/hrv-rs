@@ -13,6 +13,7 @@ use crate::{
     model::{
         acquisition::AcquisitionModelApi,
         bluetooth::{AdapterHandle, BluetoothModelApi},
+        storage::{StorageModel, StorageModelApi},
     },
     view::{bluetooth::BluetoothView, hrv_analysis::HrvView},
 };
@@ -20,9 +21,9 @@ use crate::{
 use eframe::App;
 use log::{error, info};
 use std::{marker::PhantomData, sync::Arc};
-use tokio::{sync::mpsc::Receiver, task::JoinHandle};
-use tokio::sync::mpsc::Sender;
+use tokio::{fs, sync::mpsc::Sender};
 use tokio::sync::Mutex;
+use tokio::{sync::mpsc::Receiver, task::JoinHandle};
 
 /// Main application controller.
 ///
@@ -111,7 +112,7 @@ impl<
         event_ch_tx: Sender<AppEvent>,
         gui_ctx: egui::Context,
     ) {
-
+        let mut storage = StorageModel::default();
         while let Some(evt) = event_ch_rx.recv().await {
             match evt {
                 AppEvent::Bluetooth(btev) => {
@@ -132,15 +133,35 @@ impl<
                         error!("Failed to handle HRV event: {}", e);
                     }
                 }
-                AppEvent::AcquisitionStartReq => {
-                    acq_controller.new_acquisition();
-                }
-                AppEvent::AcquisitionStopReq(path) => {
-                    if let Err(e) = acq_controller.store_acquisition(path) {
-                        error!("Failed to store acquisition: {}", e);
+                AppEvent::NewAcquisition => {}
+                AppEvent::DiscardAcquisition => {}
+                AppEvent::LoadModel(path) => {
+                    let json = fs::read_to_string(&path).await.map_err(|e| e.to_string()).unwrap();
+                    //
+                    if let Ok(model) = tokio::task::spawn_blocking(move | | {
+                        let storage: StorageModel = serde_json::from_str(&json).map_err(|e| e.to_string()).unwrap();
+                        storage
+                    }).await{
+                     storage = model;   
                     }
                 }
-                AppEvent::SelectModel(model) => {}
+                AppEvent::StoreModel(path) => {
+                    let _str = storage.clone();
+                    if let Ok(Ok(json)) = tokio::task::spawn_blocking( move | | {
+                        serde_json::to_string(&_str).map_err(|e| e.to_string())
+                    }).await{
+                        fs::write(&path, json).await.map_err(|e| e.to_string());
+                    }
+
+                }
+
+                AppEvent::NewModel => {
+                    storage = StorageModel::default();
+                }
+                AppEvent::StoreAcquisition => {
+                    let acq = acq_controller.get_acquisition();
+                    // storage.store_acquisition(acq);
+                }
             }
             gui_ctx.request_repaint();
         }
@@ -157,7 +178,7 @@ impl<
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // TODO: make adjustable
         ctx.set_pixels_per_point(1.5);
-        if let Err(e) = self.view.blocking_lock().render(ctx){
+        if let Err(e) = self.view.blocking_lock().render(ctx) {
             error!("Error during renderning: {}", e);
         }
     }
