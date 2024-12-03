@@ -63,7 +63,6 @@ impl<
     /// A new `AppController` instance.
     pub fn new(
         bt_model: Arc<tokio::sync::Mutex<BTMT>>,
-        acq_model: Arc<Mutex<dyn AcquisitionModelApi>>,
         mut ble_controller: BTCT,
         acq_controller: ACT,
         gui_ctx: egui::Context,
@@ -79,7 +78,6 @@ impl<
             view: view.clone(),
             _task_handle: tokio::spawn(Self::event_handler(
                 bt_model,
-                acq_model,
                 ble_controller,
                 acq_controller,
                 view,
@@ -104,7 +102,6 @@ impl<
     /// - `gui_ctx`: The GUI context.
     async fn event_handler(
         bt_model: Arc<tokio::sync::Mutex<BTMT>>,
-        acq_model: Arc<Mutex<dyn AcquisitionModelApi>>,
         mut ble_controller: BTCT,
         mut acq_controller: ACT,
         view: Arc<tokio::sync::Mutex<Box<dyn ViewApi>>>,
@@ -120,21 +117,25 @@ impl<
                         error!("Bluetooth event error: {:?}", e);
                     }
 
-                    if bt_model.lock().await.is_listening_to().is_some() {
-                        *view.lock().await =
-                            Box::new(HrvView::new(acq_model.clone(), event_ch_tx.clone()));
-                    } else {
-                        *view.lock().await =
-                            Box::new(BluetoothView::new(bt_model.clone(), event_ch_tx.clone()));
-                    }
+                    // if bt_model.lock().await.is_listening_to().is_some() {
+                    //     else {
+                    //     *view.lock().await =
+                    //         Box::new(BluetoothView::new(bt_model.clone(), event_ch_tx.clone()));
+                    // }
                 }
                 AppEvent::Data(hrev) => {
                     if let Err(e) = acq_controller.handle_event(hrev).await {
                         error!("Failed to handle HRV event: {}", e);
                     }
                 }
-                AppEvent::NewAcquisition => {}
-                AppEvent::DiscardAcquisition => {}
+                AppEvent::NewAcquisition => {
+                    let _ =acq_controller.reset_acquisition().await;
+                    *view.lock().await = Box::new(HrvView::new(acq_controller.get_acquisition(), event_ch_tx.clone()));
+                    
+                }
+                AppEvent::DiscardAcquisition => {
+                    // TODO
+                }
                 AppEvent::LoadModel(path) => {
                     let json = fs::read_to_string(&path).await.map_err(|e| e.to_string()).unwrap();
                     //

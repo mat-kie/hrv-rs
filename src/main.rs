@@ -104,7 +104,6 @@ fn main() {
         Box::new(|cc| {
             Ok(Box::new(AppController::new(
                 bluetooth_model.clone(),
-                acquisition_model.clone(),
                 BluetoothController::new(bluetooth_model.clone()),
                 AcquisitionController::new::<AcquisitionModel>(),
                 cc.egui_ctx.clone()

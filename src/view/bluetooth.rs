@@ -80,6 +80,7 @@ impl<AHT: AdapterHandle + 'static> BluetoothView<AHT> {
                 
                 if ui.add_sized([ui.available_width(), 20.0], btn).clicked() {
                     self.event(AppEvent::Bluetooth(BluetoothEvent::StartListening(*addr)));
+                    self.event(AppEvent::NewAcquisition);
                 }
                 
             });
