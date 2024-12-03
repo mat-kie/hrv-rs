@@ -14,7 +14,7 @@ use crate::{
         bluetooth::{AdapterHandle, BluetoothModelApi},
         storage::{StorageModel, StorageModelApi},
     },
-    view::{bluetooth::BluetoothView, hrv_analysis::HrvView},
+    view::{bluetooth::BluetoothView, hrv_analysis::HrvView, model_initializer::ModelInitView, overview::StorageView},
 };
 
 use eframe::App;
@@ -70,7 +70,7 @@ impl<
         let (event_tx, event_rx) = tokio::sync::mpsc::channel(16);
         ble_controller.initialize(event_tx.clone());
         let view: Arc<tokio::sync::Mutex<Box<dyn ViewApi>>> = Arc::new(tokio::sync::Mutex::new(
-            Box::new(BluetoothView::new(bt_model, event_tx.clone())),
+            Box::new(ModelInitView::new(event_tx.clone())),
         ));
         let _ = event_tx.try_send(AppEvent::Bluetooth(BluetoothEvent::DiscoverAdapters));
         Self {
@@ -106,7 +106,7 @@ impl<
         event_ch_tx: Sender<AppEvent>,
         gui_ctx: egui::Context,
     ) {
-        let mut storage = StorageModel::default();
+        let mut storage = Arc::new(Mutex::new(StorageModel::default()));
         while let Some(evt) = event_ch_rx.recv().await {
             match evt {
                 AppEvent::Bluetooth(btev) => {
@@ -143,13 +143,14 @@ impl<
                     })
                     .await
                     {
-                        storage = model;
+                        *storage.lock().await = model;
                     }
+                    *view.lock().await = Box::new(StorageView::new(storage.clone(), event_ch_tx.clone()));
                 }
                 AppEvent::StoreModel(path) => {
                     let _str = storage.clone();
                     if let Ok(Ok(json)) =
-                        tokio::task::spawn_blocking(move || serde_json::to_string(&_str)).await
+                        tokio::task::spawn_blocking(move || serde_json::to_string(&*_str.blocking_lock())).await
                     {
                         if let Err(e) = fs::write(&path, json).await {
                             error!("failed to write storage to file: {:?}", e);
@@ -160,11 +161,16 @@ impl<
                 }
 
                 AppEvent::NewModel => {
-                    storage = StorageModel::default();
+                    storage = Arc::new(Mutex::new(StorageModel::default()));
+                    *view.lock().await = Box::new(StorageView::new(storage.clone(), event_ch_tx.clone()));
                 }
                 AppEvent::StoreAcquisition => {
                     let acq = acq_controller.get_acquisition();
-                    storage.store_acquisition(acq);
+                    storage.lock().await.store_acquisition(acq);
+                    *view.lock().await = Box::new(StorageView::new(storage.clone(), event_ch_tx.clone()));
+                },
+                AppEvent::SelectDevice=>{
+                    *view.lock().await = Box::new(BluetoothView::new(ble_controller.get_model().clone(), event_ch_tx.clone()));
                 }
             }
             gui_ctx.request_repaint();

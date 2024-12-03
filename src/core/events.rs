@@ -70,4 +70,5 @@ pub enum AppEvent {
     NewModel,
     LoadModel(PathBuf),
     StoreModel(PathBuf),
+    SelectDevice,
 }

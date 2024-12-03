@@ -17,7 +17,7 @@ pub trait ViewApi: Send {
     ///
     /// # Returns
     /// An optional `AppEvent` if the view triggers an action.
-    fn render(&self, ctx: &egui::Context)->Result<(), String>;
+    fn render(&mut self, ctx: &egui::Context)->Result<(), String>;
 
     fn event(&self, event: AppEvent);
     

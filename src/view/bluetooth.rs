@@ -115,7 +115,7 @@ impl<AHT: AdapterHandle + Send + 'static> ViewApi for BluetoothView<AHT> {
     ///
     /// # Returns
     /// An optional `AppEvent` triggered by user interactions.
-    fn render(&self, ctx: &egui::Context) -> Result<(), String> {
+    fn render(&mut self, ctx: &egui::Context) -> Result<(), String> {
         egui::CentralPanel::default()
             .show(ctx, |ui| {
                 ui.heading("Please select Bluetooth device");

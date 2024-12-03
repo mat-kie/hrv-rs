@@ -4,7 +4,10 @@
 //! It includes structures and methods for rendering statistical data, charts, and user interface components.
 
 use crate::{
-    core::{events::{AppEvent, HrvEvent}, view_trait::ViewApi},
+    core::{
+        events::{AppEvent, HrvEvent},
+        view_trait::ViewApi,
+    },
     model::{acquisition::AcquisitionModelApi, bluetooth::HeartrateMessage},
 };
 use eframe::egui;
@@ -25,6 +28,76 @@ pub struct HrvView {
     event_ch: Sender<AppEvent>,
 }
 
+pub fn render_stats(ui: &mut egui::Ui, model: &dyn AcquisitionModelApi, hr: f64) {
+    ui.heading("Statistics");
+    egui::Grid::new("stats grid").num_columns(2).show(ui, |ui| {
+        let desc = egui::Label::new("Heartrate: ");
+        ui.add(desc);
+        let val = egui::Label::new(format!("{:.2} BPM", hr));
+        ui.add(val);
+        ui.end_row();
+        let desc = egui::Label::new("Elapsed time: ");
+        ui.add(desc);
+        let val = egui::Label::new(format!(
+            "{} s",
+            model
+                .get_start_time()
+                .map(|o| { (OffsetDateTime::now_utc() - o).whole_seconds() })
+                .unwrap_or(0)
+        ));
+        ui.add(val);
+        ui.end_row();
+
+        if let Some(stats) = model.get_hrv_stats() {
+            let desc = egui::Label::new("RMSSD [ms]");
+            ui.add(desc);
+            let val = egui::Label::new(format!("{:.2} ms", stats.rmssd));
+            ui.add(val);
+            ui.end_row();
+            let desc = egui::Label::new("SDRR [ms]");
+            ui.add(desc);
+            let val = egui::Label::new(format!("{:.2} ms", stats.sdrr));
+            ui.add(val);
+            ui.end_row();
+            let desc = egui::Label::new("SD1 [ms]");
+            ui.add(desc);
+            let val = egui::Label::new(format!("{:.2} ms", stats.sd1));
+            ui.add(val);
+            ui.end_row();
+            let desc = egui::Label::new("SD2 [ms]");
+            ui.add(desc);
+            let val = egui::Label::new(format!("{:.2} ms", stats.sd2));
+            ui.add(val);
+            ui.end_row();
+        }
+    });
+    ui.separator();
+}
+
+pub fn render_poincare_plot(ui: &mut egui::Ui, model: &dyn AcquisitionModelApi) {
+    let plot = if ui.available_height() < ui.available_width() {
+        Plot::new("Poincare Plot")
+            .legend(Legend::default())
+            .view_aspect(1.0)
+            .height(ui.available_height())
+    } else {
+        Plot::new("Poincare Plot")
+            .legend(Legend::default())
+            .view_aspect(1.0)
+            .width(ui.available_width())
+    };
+
+    plot.show(ui, |plot_ui| {
+        plot_ui.points(
+            Points::new(model.get_poincare_points())
+                .name("R-R Intervals")
+                .shape(egui_plot::MarkerShape::Diamond)
+                .color(Color32::RED)
+                .radius(5.0),
+        );
+    });
+}
+
 impl HrvView {
     /// Creates a new `HrvView` instance.
     ///
@@ -33,54 +106,11 @@ impl HrvView {
     ///
     /// # Returns
     /// A new `HrvView` instance.
-    pub fn new(model: Arc<Mutex<Box<dyn AcquisitionModelApi>>>, event_ch: Sender<AppEvent>) -> Self {
+    pub fn new(
+        model: Arc<Mutex<Box<dyn AcquisitionModelApi>>>,
+        event_ch: Sender<AppEvent>,
+    ) -> Self {
         Self { model, event_ch }
-    }
-
-    /// Renders the HRV statistics panel.
-    ///
-    /// Displays computed HRV metrics, such as heart rate, rMSSD, SD1, and SD2.
-    ///
-    /// # Arguments
-    /// * `ui` - The `egui::Ui` instance for rendering.
-    /// * `stats` - Optional HRV statistics to display.
-    fn render_statistics(
-        &self,
-        ui: &mut egui::Ui,
-        model: &dyn AcquisitionModelApi,
-        msg: &HeartrateMessage,
-    ) {
-        ui.heading("Statistics");
-        egui::Grid::new("stats grid").num_columns(2).show(ui, |ui| {
-            let desc = egui::Label::new("Heartrate: ");
-            ui.add(desc);
-            let val = egui::Label::new(format!("{:.2} BPM", msg.get_hr()));
-            ui.add(val);
-            ui.end_row();
-            if let Some(stats) = model.get_hrv_stats() {
-                let desc = egui::Label::new("RMSSD [ms]");
-                ui.add(desc);
-                let val = egui::Label::new(format!("{:.2} ms", stats.rmssd));
-                ui.add(val);
-                ui.end_row();
-                let desc = egui::Label::new("SDRR [ms]");
-                ui.add(desc);
-                let val = egui::Label::new(format!("{:.2} ms", stats.sdrr));
-                ui.add(val);
-                ui.end_row();
-                let desc = egui::Label::new("SD1 [ms]");
-                ui.add(desc);
-                let val = egui::Label::new(format!("{:.2} ms", stats.sd1));
-                ui.add(val);
-                ui.end_row();
-                let desc = egui::Label::new("SD2 [ms]");
-                ui.add(desc);
-                let val = egui::Label::new(format!("{:.2} ms", stats.sd2));
-                ui.add(val);
-                ui.end_row();
-            }
-        });
-        ui.separator();
     }
 
     fn render_settings(&self, model: &dyn AcquisitionModelApi, ui: &mut egui::Ui) {
@@ -117,20 +147,9 @@ impl HrvView {
         ui.separator();
     }
 
-    fn render_acq(&self, model: &dyn AcquisitionModelApi, ui: &mut egui::Ui) {
+    fn render_acq(&self, ui: &mut egui::Ui) {
         ui.heading("Acquisition");
         egui::Grid::new("acq grid").num_columns(2).show(ui, |ui| {
-            let desc = egui::Label::new("Elapsed time: ");
-            ui.add(desc);
-            let val = egui::Label::new(format!(
-                "{} s",
-                model
-                    .get_start_time()
-                    .map(|o| { (OffsetDateTime::now_utc() - o).whole_seconds() })
-                    .unwrap_or(0)
-            ));
-            ui.add(val);
-            ui.end_row();
             if ui.button("Restart").clicked() {
                 self.event(AppEvent::NewAcquisition);
                 self.event(AppEvent::Data(HrvEvent::AcquisitionStartReq));
@@ -144,36 +163,7 @@ impl HrvView {
         ui.separator();
     }
 
-    /// Renders the Poincare plot.
-    ///
-    /// Displays a scatter plot of RR interval data to visualize short- and long-term HRV.
-    ///
-    /// # Arguments
-    /// * `ui` - The `egui::Ui` instance for rendering.
-    /// * `points` - The Poincare plot points to display.
-    fn render_poincare_plot(&self, ui: &mut egui::Ui, points: &[[f64; 2]]) {
-        let plot = if ui.available_height() < ui.available_width() {
-            Plot::new("Poincare Plot")
-                .legend(Legend::default())
-                .view_aspect(1.0)
-                .height(ui.available_height())
-        } else {
-            Plot::new("Poincare Plot")
-                .legend(Legend::default())
-                .view_aspect(1.0)
-                .width(ui.available_width())
-        };
-
-        plot.show(ui, |plot_ui| {
-            plot_ui.points(
-                Points::new(points.to_owned())
-                    .name("R-R Intervals")
-                    .shape(egui_plot::MarkerShape::Diamond)
-                    .color(Color32::RED)
-                    .radius(5.0),
-            );
-        });
-    }
+   
 }
 
 impl ViewApi for HrvView {
@@ -191,7 +181,7 @@ impl ViewApi for HrvView {
     ///
     /// # Returns
     /// An optional `AppEvent` triggered by user interactions.
-    fn render(&self, ctx: &egui::Context) -> Result<(), String> {
+    fn render(&mut self, ctx: &egui::Context) -> Result<(), String> {
         // Extract HRV statistics and Poincare plot points from the model.
 
         // Render the left panel with HRV statistics.
@@ -200,14 +190,14 @@ impl ViewApi for HrvView {
             let msg = model.get_last_msg();
             self.render_settings(&**model, ui);
             if let Some(msg) = msg {
-                self.render_statistics(ui, &**model, &msg);
+                render_stats(ui, &**model, msg.get_hr());
             }
-            self.render_acq(&**model, ui);
+            self.render_acq( ui);
         });
 
         // Render the central panel with the Poincare plot.
         egui::CentralPanel::default().show(ctx, |ui| {
-            self.render_poincare_plot(ui, &model.get_poincare_points());
+            render_poincare_plot(ui, &**model);
         });
 
         Ok(()) // no errors

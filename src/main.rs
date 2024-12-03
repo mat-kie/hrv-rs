@@ -66,6 +66,8 @@ mod view {
     pub mod hrv_analysis;
     /// View for model initialization
     pub mod model_initializer;
+
+    pub mod  overview;
 }
 
 /// Main entry point of the application.

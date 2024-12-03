@@ -23,7 +23,7 @@ pub trait BluetoothApi<AHT: AdapterHandle>: Send + Sync {
     fn initialize(&mut self, tx: Sender<AppEvent>);
 
     /// Returns a reference to the Bluetooth model.
-    fn get_model(&self) -> &Mutex<dyn BluetoothModelApi<AHT>>;
+    fn get_model(&self) -> &Arc<Mutex<dyn BluetoothModelApi<AHT>>>;
 
     /// Discovers available Bluetooth adapters.
     fn discover_adapters<'a>(
@@ -112,7 +112,7 @@ impl<AHT: AdapterHandle + Send + Sync> BluetoothApi<AHT> for BluetoothController
         self.tx = Some(tx);
     }
 
-    fn get_model(&self) -> &Mutex<dyn BluetoothModelApi<AHT>> {
+    fn get_model(&self) -> &Arc<Mutex<dyn BluetoothModelApi<AHT>>> {
         &self.model
     }
 
