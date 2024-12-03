@@ -3,7 +3,7 @@
 //! This module defines the main controller responsible for orchestrating the application.
 //! It initializes and manages other controllers and coordinates the overall application flow.
 
-use super::{acquisition::DataAcquisitionApi, bluetooth::handle_event};
+use super::acquisition::DataAcquisitionApi;
 use crate::{
     controller::bluetooth::BluetoothApi,
     core::{
@@ -113,7 +113,7 @@ impl<
         while let Some(evt) = event_ch_rx.recv().await {
             match evt {
                 AppEvent::Bluetooth(btev) => {
-                    if let Err(e) = handle_event(&mut ble_controller, btev).await {
+                    if let Err(e) = ble_controller.handle_event(btev).await {
                         error!("Bluetooth event error: {:?}", e);
                     }
 

@@ -15,26 +15,7 @@ use tokio::sync::mpsc::Sender;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 
-/// Handles specific Bluetooth events.
-///
-/// # Arguments
-/// - `controller`: Reference to the Bluetooth controller.
-/// - `event`: The Bluetooth event to handle.
-pub async fn handle_event<'a, AHT: AdapterHandle, CT: BluetoothApi<AHT>>(
-    controller: &mut CT,
-    event: BluetoothEvent,
-) -> Result<(), String> {
-    match event {
-        BluetoothEvent::DiscoverAdapters => controller.discover_adapters().await,
-        BluetoothEvent::AdapterSelected(uuid) => {
-            controller.get_model().lock().await.select_adapter(&uuid)?;
-            controller.start_scan().await
-        }
-        BluetoothEvent::StartListening(id) => controller.start_listening(id).await,
-        BluetoothEvent::StopListening => controller.stop_listening().await,
-        _ => Err("Unhandled BluetoothEvent".into()),
-    }
-}
+
 
 /// API for Bluetooth operations.
 pub trait BluetoothApi<AHT: AdapterHandle>: Send + Sync {
@@ -68,6 +49,11 @@ pub trait BluetoothApi<AHT: AdapterHandle>: Send + Sync {
     /// Stops listening for notifications from peripherals.
     fn stop_listening<'a>(
         &'a mut self,
+    ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>>;
+
+    fn handle_event<'a>(
+        &'a mut self,
+        event: BluetoothEvent
     ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>>;
 }
 
@@ -217,5 +203,24 @@ impl<AHT: AdapterHandle + Send + Sync> BluetoothApi<AHT> for BluetoothController
                 Err("No active listening task!".to_owned())
             }
         })
+    }
+    fn handle_event<'a>(
+            &'a mut self,
+            event: BluetoothEvent
+        ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>> {
+              Box::pin(async move{
+
+                match event {
+                    BluetoothEvent::DiscoverAdapters => self.discover_adapters().await,
+                    BluetoothEvent::AdapterSelected(uuid) => {
+                        self.get_model().lock().await.select_adapter(&uuid)?;
+                        self.start_scan().await
+                    }
+                    BluetoothEvent::StartListening(id) => self.start_listening(id).await,
+                    BluetoothEvent::StopListening => self.stop_listening().await,
+                    _ => Err("Unhandled BluetoothEvent".into()),
+                }
+              })
+            
     }
 }
