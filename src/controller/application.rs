@@ -6,7 +6,10 @@
 use super::{acquisition::DataAcquisitionApi, bluetooth::handle_event};
 use crate::{
     controller::bluetooth::BluetoothApi,
-    core::{events::{AppEvent, BluetoothEvent}, view_trait::ViewApi},
+    core::{
+        events::{AppEvent, BluetoothEvent},
+        view_trait::ViewApi,
+    },
     model::{
         acquisition::AcquisitionModelApi,
         bluetooth::{AdapterHandle, BluetoothModelApi},
@@ -20,7 +23,7 @@ use std::{
     marker::PhantomData,
     sync::{Arc, Mutex},
 };
-use tokio::sync::mpsc::{Receiver};
+use tokio::sync::mpsc::Receiver;
 use tokio::sync::mpsc::Sender;
 
 /// Main application controller.
@@ -33,14 +36,12 @@ pub struct AppController<
     BTMT: BluetoothModelApi<AHT> + Send + 'static,
     //ACMT: AcquisitionModelApi + Send + 'static,
 > {
-    
     view: Arc<tokio::sync::Mutex<Box<dyn ViewApi>>>,
     /// Marker for type parameter `AHT`.
     _marker: PhantomData<AHT>,
     _marker1: PhantomData<ACT>,
     _marker2: PhantomData<BTCT>,
     _marker3: PhantomData<BTMT>,
-
 }
 
 impl<
@@ -65,25 +66,33 @@ impl<
         acq_model: Arc<Mutex<dyn AcquisitionModelApi>>,
         mut ble_controller: BTCT,
         acq_controller: ACT,
-        gui_ctx: egui::Context
+        gui_ctx: egui::Context,
     ) -> Self {
         info!("Initializing AppController.");
         let (event_tx, event_rx) = tokio::sync::mpsc::channel(16);
         ble_controller.initialize(event_tx.clone());
-        let view:Arc<tokio::sync::Mutex<Box<dyn ViewApi>>>  = Arc::new(tokio::sync::Mutex::new(Box::new(BluetoothView::new(bt_model.clone(), event_tx.clone()))));
+        let view: Arc<tokio::sync::Mutex<Box<dyn ViewApi>>> = Arc::new(tokio::sync::Mutex::new(
+            Box::new(BluetoothView::new(bt_model.clone(), event_tx.clone())),
+        ));
         let _ = event_tx.try_send(AppEvent::Bluetooth(BluetoothEvent::DiscoverAdapters));
-        tokio::spawn(Self::event_handler(bt_model, acq_model, ble_controller, acq_controller, view.clone(), event_rx, event_tx, gui_ctx));
+        tokio::spawn(Self::event_handler(
+            bt_model,
+            acq_model,
+            ble_controller,
+            acq_controller,
+            view.clone(),
+            event_rx,
+            event_tx,
+            gui_ctx,
+        ));
         Self {
             view,
             _marker: Default::default(),
             _marker1: Default::default(),
             _marker2: Default::default(),
             _marker3: Default::default(),
-            
         }
     }
-
-    
 
     /// Asynchronous event handler.
     ///
@@ -111,12 +120,13 @@ impl<
                     }
 
                     if bt_model.lock().await.is_listening_to().is_some() {
-                        *view.lock().await =  Box::new(HrvView::new(acq_model.clone(), event_ch_tx.clone()));
+                        *view.lock().await =
+                            Box::new(HrvView::new(acq_model.clone(), event_ch_tx.clone()));
                     } else {
-                        *view.lock().await =  Box::new(BluetoothView::new(bt_model.clone(),  event_ch_tx.clone()));
-                        
+                        *view.lock().await =
+                            Box::new(BluetoothView::new(bt_model.clone(), event_ch_tx.clone()));
+                    }
                 }
-            }
                 AppEvent::Data(hrev) => {
                     if let Err(e) = acq_controller.handle_event(hrev) {
                         error!("Failed to handle HRV event: {}", e);
@@ -130,8 +140,7 @@ impl<
                         error!("Failed to store acquisition: {}", e);
                     }
                 }
-                AppEvent::SelectModel(model)=>{
-                }
+                AppEvent::SelectModel(model) => {}
             }
             gui_ctx.request_repaint();
         }
@@ -143,10 +152,11 @@ impl<
         ACT: DataAcquisitionApi + Send,
         BTCT: BluetoothApi<AHT> + Send,
         BTMT: BluetoothModelApi<AHT> + Send,
-    > App for AppController<AHT, ACT, BTCT, BTMT>{
-        fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-            // TODO: make adjustable
-            ctx.set_pixels_per_point(1.5);
-            self.view.blocking_lock().render(ctx);
-        }
+    > App for AppController<AHT, ACT, BTCT, BTMT>
+{
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // TODO: make adjustable
+        ctx.set_pixels_per_point(1.5);
+        self.view.blocking_lock().render(ctx);
     }
+}
