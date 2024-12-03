@@ -21,8 +21,8 @@ use crate::{
 use eframe::App;
 use log::{error, info};
 use std::{marker::PhantomData, sync::Arc};
-use tokio::{fs, sync::mpsc::Sender};
 use tokio::sync::Mutex;
+use tokio::{fs, sync::mpsc::Sender};
 use tokio::{sync::mpsc::Receiver, task::JoinHandle};
 
 /// Main application controller.
@@ -35,7 +35,7 @@ pub struct AppController<
     BTMT: BluetoothModelApi<AHT> + Send + 'static,
     //ACMT: AcquisitionModelApi + Send + 'static,
 > {
-    view: Arc<tokio::sync::Mutex<Box<dyn ViewApi>>>,
+    view: Arc<Mutex<Box<dyn ViewApi>>>,
     _task_handle: JoinHandle<()>,
     /// Marker for type parameter `AHT`.
     _marker: PhantomData<AHT>,
@@ -62,7 +62,7 @@ impl<
     /// # Returns
     /// A new `AppController` instance.
     pub fn new(
-        bt_model: Arc<tokio::sync::Mutex<BTMT>>,
+        bt_model: Arc<Mutex<BTMT>>,
         mut ble_controller: BTCT,
         acq_controller: ACT,
         gui_ctx: egui::Context,
@@ -116,12 +116,6 @@ impl<
                     if let Err(e) = ble_controller.handle_event(btev).await {
                         error!("Bluetooth event error: {:?}", e);
                     }
-
-                    // if bt_model.lock().await.is_listening_to().is_some() {
-                    //     else {
-                    //     *view.lock().await =
-                    //         Box::new(BluetoothView::new(bt_model.clone(), event_ch_tx.clone()));
-                    // }
                 }
                 AppEvent::Data(hrev) => {
                     if let Err(e) = acq_controller.handle_event(hrev).await {
@@ -129,31 +123,43 @@ impl<
                     }
                 }
                 AppEvent::NewAcquisition => {
-                    let _ =acq_controller.reset_acquisition().await;
-                    *view.lock().await = Box::new(HrvView::new(acq_controller.get_acquisition(), event_ch_tx.clone()));
-                    
+                    let _ = acq_controller.reset_acquisition().await;
+                    *view.lock().await = Box::new(HrvView::new(
+                        acq_controller.get_acquisition(),
+                        event_ch_tx.clone(),
+                    ));
                 }
                 AppEvent::DiscardAcquisition => {
-                    // TODO
+                    let _ = acq_controller.reset_acquisition().await;
                 }
                 AppEvent::LoadModel(path) => {
-                    let json = fs::read_to_string(&path).await.map_err(|e| e.to_string()).unwrap();
+                    let json = fs::read_to_string(&path)
+                        .await
+                        .map_err(|e| e.to_string())
+                        .unwrap();
                     //
-                    if let Ok(model) = tokio::task::spawn_blocking(move | | {
-                        let storage: StorageModel = serde_json::from_str(&json).map_err(|e| e.to_string()).unwrap();
+                    if let Ok(model) = tokio::task::spawn_blocking(move || {
+                        let storage: StorageModel = serde_json::from_str(&json)
+                            .map_err(|e| e.to_string())
+                            .unwrap();
                         storage
-                    }).await{
-                     storage = model;   
+                    })
+                    .await
+                    {
+                        storage = model;
                     }
                 }
                 AppEvent::StoreModel(path) => {
                     let _str = storage.clone();
-                    if let Ok(Ok(json)) = tokio::task::spawn_blocking( move | | {
-                        serde_json::to_string(&_str).map_err(|e| e.to_string())
-                    }).await{
-                        fs::write(&path, json).await.map_err(|e| e.to_string());
+                    if let Ok(Ok(json)) =
+                        tokio::task::spawn_blocking(move || serde_json::to_string(&_str)).await
+                    {
+                        if let Err(e) = fs::write(&path, json).await {
+                            error!("failed to write storage to file: {:?}", e);
+                        }
+                    } else {
+                        error!("failed to serialize storage");
                     }
-
                 }
 
                 AppEvent::NewModel => {
@@ -161,7 +167,7 @@ impl<
                 }
                 AppEvent::StoreAcquisition => {
                     let acq = acq_controller.get_acquisition();
-                    // storage.store_acquisition(acq);
+                    storage.store_acquisition(acq);
                 }
             }
             gui_ctx.request_repaint();

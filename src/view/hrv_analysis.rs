@@ -21,7 +21,7 @@ use tokio::sync::Mutex;
 /// Represents the view for visualizing HRV analysis results, including statistics and charts.
 pub struct HrvView {
     /// Shared access to the runtime HRV data model.
-    model: Arc<Mutex<dyn AcquisitionModelApi>>,
+    model: Arc<Mutex<Box<dyn AcquisitionModelApi>>>,
     event_ch: Sender<AppEvent>,
 }
 
@@ -33,7 +33,7 @@ impl HrvView {
     ///
     /// # Returns
     /// A new `HrvView` instance.
-    pub fn new(model: Arc<Mutex<dyn AcquisitionModelApi>>, event_ch: Sender<AppEvent>) -> Self {
+    pub fn new(model: Arc<Mutex<Box<dyn AcquisitionModelApi>>>, event_ch: Sender<AppEvent>) -> Self {
         Self { model, event_ch }
     }
 
@@ -198,11 +198,11 @@ impl ViewApi for HrvView {
         let model = self.model.blocking_lock();
         egui::SidePanel::left("left_sidebar").show(ctx, |ui| {
             let msg = model.get_last_msg();
-            self.render_settings(&*model, ui);
+            self.render_settings(&**model, ui);
             if let Some(msg) = msg {
-                self.render_statistics(ui, &*model, &msg);
+                self.render_statistics(ui, &**model, &msg);
             }
-            self.render_acq(&*model, ui);
+            self.render_acq(&**model, ui);
         });
 
         // Render the central panel with the Poincare plot.

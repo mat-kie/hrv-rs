@@ -12,7 +12,7 @@ use tokio::sync::Mutex;
 /// It provides methods for starting, storing, and discarding acquisitions, as well as handling events.
 pub trait DataAcquisitionApi {
     /// Sets the model for the controller
-    fn get_acquisition(&self)-> Arc<Mutex<dyn AcquisitionModelApi>>;
+    fn get_acquisition(&self)-> Arc<Mutex<Box<dyn AcquisitionModelApi>>>;
     /// Starts a new acquisition session.
     fn reset_acquisition<'a>(
         &'a self
@@ -44,7 +44,7 @@ pub trait DataAcquisitionApi {
 /// * `AMT` - A type that implements the `AcquisitionModelApi` trait, representing the underlying data model.
 pub struct AcquisitionController {
     /// A thread-safe, shared reference to the acquisition model.
-    model: Arc<Mutex<dyn AcquisitionModelApi>>,
+    model: Arc<Mutex<Box<dyn AcquisitionModelApi>>>,
     acquiring: bool
 }
 
@@ -57,13 +57,13 @@ impl AcquisitionController {
     /// # Returns
     /// A new instance of `AcquisitionController`.
     pub fn new<AC:AcquisitionModelApi + Default + 'static>() -> Self {
-        let  model: Arc<Mutex<dyn AcquisitionModelApi>> = Arc::new(Mutex::new(AC::default()));
+        let  model: Arc<Mutex<Box<dyn AcquisitionModelApi>>> = Arc::new(Mutex::new(Box::new(AC::default())));
         Self { model, acquiring:false }
     }
 }
 
 impl DataAcquisitionApi for AcquisitionController {
-    fn get_acquisition(&self)-> Arc<Mutex<dyn AcquisitionModelApi>> {
+    fn get_acquisition(&self)-> Arc<Mutex<Box<dyn AcquisitionModelApi>>> {
         self.model.clone()
     }
     fn reset_acquisition<'a>(
