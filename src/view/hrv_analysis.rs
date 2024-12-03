@@ -208,17 +208,16 @@ impl ViewApi for HrvView {
 
         // Render the left panel with HRV statistics.
         let model = self.model.lock().unwrap();
-        let evt = egui::SidePanel::left("left_sidebar")
+        egui::SidePanel::left("left_sidebar")
             .show(ctx, |ui| {
                 let msg = model.get_last_msg();
-                let evt = { self.render_settings(&*model, ui) };
+                self.render_settings(&*model, ui);
                 if let Some(msg) = msg {
                     self.render_statistics(ui, &*model, &msg);
                 }
                 self.render_acq(&*model, ui);
-                evt
-            })
-            .inner;
+                
+            });
 
         // Render the central panel with the Poincare plot.
         egui::CentralPanel::default().show(ctx, |ui| {
