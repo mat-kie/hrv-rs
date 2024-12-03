@@ -20,7 +20,7 @@ use crate::{
 use eframe::App;
 use log::{error, info};
 use std::{marker::PhantomData, sync::Arc};
-use tokio::sync::mpsc::Receiver;
+use tokio::{sync::mpsc::Receiver, task::JoinHandle};
 use tokio::sync::mpsc::Sender;
 use tokio::sync::Mutex;
 
@@ -35,6 +35,7 @@ pub struct AppController<
     //ACMT: AcquisitionModelApi + Send + 'static,
 > {
     view: Arc<tokio::sync::Mutex<Box<dyn ViewApi>>>,
+    _task_handle: JoinHandle<()>,
     /// Marker for type parameter `AHT`.
     _marker: PhantomData<AHT>,
     _marker1: PhantomData<ACT>,
@@ -73,18 +74,18 @@ impl<
             Box::new(BluetoothView::new(bt_model.clone(), event_tx.clone())),
         ));
         let _ = event_tx.try_send(AppEvent::Bluetooth(BluetoothEvent::DiscoverAdapters));
-        tokio::spawn(Self::event_handler(
-            bt_model,
-            acq_model,
-            ble_controller,
-            acq_controller,
-            view.clone(),
-            event_rx,
-            event_tx,
-            gui_ctx,
-        ));
         Self {
-            view,
+            view: view.clone(),
+            _task_handle: tokio::spawn(Self::event_handler(
+                bt_model,
+                acq_model,
+                ble_controller,
+                acq_controller,
+                view,
+                event_rx,
+                event_tx,
+                gui_ctx,
+            )),
             _marker: Default::default(),
             _marker1: Default::default(),
             _marker2: Default::default(),
@@ -110,6 +111,7 @@ impl<
         event_ch_tx: Sender<AppEvent>,
         gui_ctx: egui::Context,
     ) {
+
         while let Some(evt) = event_ch_rx.recv().await {
             match evt {
                 AppEvent::Bluetooth(btev) => {
@@ -155,6 +157,8 @@ impl<
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // TODO: make adjustable
         ctx.set_pixels_per_point(1.5);
-        self.view.blocking_lock().render(ctx);
+        if let Err(e) = self.view.blocking_lock().render(ctx){
+            error!("Error during renderning: {}", e);
+        }
     }
 }
