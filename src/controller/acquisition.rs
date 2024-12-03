@@ -3,7 +3,7 @@
 //! This module defines the controller responsible for managing data acquisition from BLE devices.
 //! It interacts with the acquisition model and coordinates data flow during HRV analysis.
 
-use std::{future::Future, path::PathBuf, pin::Pin, sync::Arc};
+use std::{future::Future, pin::Pin, sync::Arc};
 
 use crate::{core::events::HrvEvent, model::acquisition::AcquisitionModelApi};
 use tokio::sync::Mutex;

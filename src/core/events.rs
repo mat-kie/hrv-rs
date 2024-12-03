@@ -3,12 +3,11 @@
 //! This module defines events used for communication between different components
 //! of the HRV analysis tool. Events are central to the application's event-driven architecture.
 use btleplug::api::BDAddr;
-use std::{path::PathBuf, sync::Arc};
+use std::path::PathBuf;
 use time::Duration;
-use tokio::sync::Mutex;
 use uuid::Uuid;
 
-use crate::model::{acquisition::AcquisitionModelApi, bluetooth::HeartrateMessage};
+use crate::model::bluetooth::HeartrateMessage;
 
 /// Enumeration of Bluetooth-related events.
 ///

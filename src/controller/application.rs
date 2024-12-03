@@ -11,7 +11,6 @@ use crate::{
         view_trait::ViewApi,
     },
     model::{
-        acquisition::AcquisitionModelApi,
         bluetooth::{AdapterHandle, BluetoothModelApi},
         storage::{StorageModel, StorageModelApi},
     },
@@ -71,13 +70,12 @@ impl<
         let (event_tx, event_rx) = tokio::sync::mpsc::channel(16);
         ble_controller.initialize(event_tx.clone());
         let view: Arc<tokio::sync::Mutex<Box<dyn ViewApi>>> = Arc::new(tokio::sync::Mutex::new(
-            Box::new(BluetoothView::new(bt_model.clone(), event_tx.clone())),
+            Box::new(BluetoothView::new(bt_model, event_tx.clone())),
         ));
         let _ = event_tx.try_send(AppEvent::Bluetooth(BluetoothEvent::DiscoverAdapters));
         Self {
             view: view.clone(),
             _task_handle: tokio::spawn(Self::event_handler(
-                bt_model,
                 ble_controller,
                 acq_controller,
                 view,
@@ -101,7 +99,6 @@ impl<
     /// - `event_ch`: Receiver for application events.
     /// - `gui_ctx`: The GUI context.
     async fn event_handler(
-        bt_model: Arc<tokio::sync::Mutex<BTMT>>,
         mut ble_controller: BTCT,
         mut acq_controller: ACT,
         view: Arc<tokio::sync::Mutex<Box<dyn ViewApi>>>,
