@@ -12,11 +12,14 @@ use btleplug::{
     platform::{Adapter, Manager},
 };
 use futures::StreamExt;
+use rand::{Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::{fmt::Debug, future::Future};
-use tokio::sync::broadcast::Sender;
+use tokio::sync::mpsc::Sender;
+use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 
@@ -186,7 +189,7 @@ impl fmt::Display for HeartrateMessage {
 ///
 /// This structure stores the basic details of a discovered Bluetooth device,
 /// including its name and address.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct DeviceDescriptor {
     /// The name of the device, if available.
     pub name: String,
@@ -277,7 +280,6 @@ pub trait AdapterHandle: PartialOrd + Clone + Send + Sync {
     /// instances of the implementing type representing each discovered adapter.
     fn retrieve_adapters<'a>(
     ) -> Pin<Box<dyn Future<Output = Result<Vec<Self>, String>> + Send + 'a>>;
-
 }
 
 /// Represents a Bluetooth adapter.
@@ -338,7 +340,6 @@ impl AdapterHandle for BluetoothAdapter {
             Ok(res)
         })
     }
-
 
     fn start_scan<'a>(&'a self) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>> {
         Box::pin(async { map_err!(self.adapter.start_scan(ScanFilter::default()).await) })
@@ -415,6 +416,7 @@ impl AdapterHandle for BluetoothAdapter {
                             .send(AppEvent::Data(HrvEvent::HrMessage(HeartrateMessage::new(
                                 &data.value,
                             ))))
+                            .await
                             .is_err()
                     {
                         break;
@@ -423,6 +425,115 @@ impl AdapterHandle for BluetoothAdapter {
                 Err("listener terminated".into())
             });
             Ok(fut)
+        })
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct MockAdapterHandle {
+    name: String,
+    uuid: Uuid,
+    peripherals: Arc<Mutex<Vec<DeviceDescriptor>>>,
+}
+impl PartialEq for MockAdapterHandle {
+    fn eq(&self, other: &Self) -> bool {
+        self.uuid.eq(&other.uuid)
+    }
+}
+impl PartialOrd for MockAdapterHandle {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.uuid.partial_cmp(&other.uuid)
+    }
+}
+impl AdapterHandle for MockAdapterHandle {
+    type CentralType = ();
+
+    fn new(_: Self::CentralType, name: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            uuid: Uuid::new_v4(),
+            peripherals: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn uuid(&self) -> &Uuid {
+        &self.uuid
+    }
+
+    fn start_scan<'a>(&'a self) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>> {
+        let peripherals = self.peripherals.clone();
+        Box::pin(async move {
+            let mut peripherals_lock = peripherals.lock().await;
+            peripherals_lock.push(DeviceDescriptor {
+                name: "Mock Device 1".to_string(),
+                address: [0, 1, 2, 3, 4, 5].into(),
+            });
+            peripherals_lock.push(DeviceDescriptor {
+                name: "Mock Device 2".to_string(),
+                address: [5, 4, 3, 2, 1, 0].into(),
+            });
+            Ok(())
+        })
+    }
+
+    fn stop_scan<'a>(&'a self) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>> {
+        Box::pin(async move {
+            // Mock stopping the scan
+            Ok(())
+        })
+    }
+
+    fn listen_to_peripheral<'a>(
+        &'a self,
+        peripheral: BDAddr,
+        _tx: Sender<AppEvent>,
+    ) -> Pin<Box<dyn Future<Output = Result<JoinHandle<Result<(), String>>, String>> + Send + 'a>>
+    {
+        Box::pin(async move {
+            if peripheral == BDAddr::from([0, 1, 2, 3, 4, 5]) {
+                Ok(tokio::spawn(async move {
+                    let mut rng = rand::rngs::StdRng::seed_from_u64(42);
+                    loop {
+                        let val: u16 = 900 + rng.gen_range(0..200);
+                        let data: [u8; 4] =
+                            [0b10000, 60, (val & 255) as _, ((val >> 8) & 255) as _];
+                        let _ = _tx
+                            .send(AppEvent::Data(HrvEvent::HrMessage(HeartrateMessage::new(
+                                &data,
+                            ))))
+                            .await;
+
+                        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                    }
+                }))
+            } else {
+                Err("Peripheral not found".to_string())
+            }
+        })
+    }
+
+    fn peripherals<'a>(
+        &'a self,
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<DeviceDescriptor>, String>> + Send + 'a>> {
+        let peripherals = self.peripherals.clone();
+        Box::pin(async move {
+            let peripherals_lock = peripherals.lock().await;
+            Ok(peripherals_lock.clone())
+        })
+    }
+
+    fn retrieve_adapters<'a>(
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<Self>, String>> + Send + 'a>> {
+        Box::pin(async move {
+            Ok(vec![Self {
+                name: "Mock Adapter".to_string(),
+                uuid: Uuid::new_v4(),
+                peripherals: Arc::new(Mutex::new(Vec::new())),
+            }])
         })
     }
 }
