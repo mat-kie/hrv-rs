@@ -64,8 +64,6 @@ mod view {
     pub mod bluetooth;
     /// HRV analysis user interface.
     pub mod hrv_analysis;
-    /// View manager for coordinating multiple views.
-    pub mod manager;
     /// View for model initialization
     pub mod model_initializer;
 }
@@ -97,20 +95,20 @@ fn main() {
     let acquisition_model = Arc::new(std::sync::Mutex::new(AcquisitionModel::default()));
 
     // Initialize application controller with models and controllers.
-    let app_controller = AppController::new(
-        bluetooth_model.clone(),
-        acquisition_model.clone(),
-        BluetoothController::new(bluetooth_model.clone()),
-        AcquisitionController::new(acquisition_model.clone()),
-    );
+    
 
     // Start the eframe application with the main view manager.
     eframe::run_native(
         "Hrv-rs",
         NativeOptions::default(),
         Box::new(|cc| {
-            let view_manager = app_controller.launch(cc.egui_ctx.clone());
-            Ok(Box::new(view_manager))
+            Ok(Box::new(AppController::new(
+                bluetooth_model.clone(),
+                acquisition_model.clone(),
+                BluetoothController::new(bluetooth_model.clone()),
+                AcquisitionController::new(acquisition_model.clone()),
+                cc.egui_ctx.clone()
+            )))
         }),
     )
     .expect("Failed to start eframe application");
