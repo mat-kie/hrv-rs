@@ -94,7 +94,6 @@ fn main() {
     let bluetooth_model = Arc::new(Mutex::new(BluetoothModel::<BluetoothAdapter>::default()));
 
     // Shared state for acquisition model.
-    let acquisition_model = Arc::new(Mutex::new(AcquisitionModel::default()));
 
     // Initialize application controller with models and controllers.
     
@@ -105,7 +104,6 @@ fn main() {
         NativeOptions::default(),
         Box::new(|cc| {
             Ok(Box::new(AppController::new(
-                bluetooth_model.clone(),
                 BluetoothController::new(bluetooth_model.clone()),
                 AcquisitionController::new::<AcquisitionModel>(),
                 cc.egui_ctx.clone()

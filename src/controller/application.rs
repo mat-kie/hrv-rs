@@ -11,15 +11,17 @@ use crate::{
         view_trait::ViewApi,
     },
     model::{
-        bluetooth::{AdapterHandle, BluetoothModelApi},
+        bluetooth::AdapterHandle,
         storage::{StorageModel, StorageModelApi},
     },
-    view::{bluetooth::BluetoothView, hrv_analysis::HrvView, model_initializer::ModelInitView, overview::StorageView},
+    view::{
+        bluetooth::BluetoothView, hrv_analysis::HrvView, model_initializer::ModelInitView,
+        overview::StorageView,
+    },
 };
 
 use eframe::App;
 use log::{error, info};
-use nalgebra::storage;
 use std::{marker::PhantomData, sync::Arc};
 use tokio::sync::Mutex;
 use tokio::{fs, sync::mpsc::Sender};
@@ -32,25 +34,18 @@ pub struct AppController<
     AHT: AdapterHandle + Send + 'static,
     ACT: DataAcquisitionApi + Send + 'static,
     BTCT: BluetoothApi<AHT> + Send + 'static,
-    BTMT: BluetoothModelApi<AHT> + Send + 'static,
     //ACMT: AcquisitionModelApi + Send + 'static,
 > {
     view: Arc<Mutex<Box<dyn ViewApi>>>,
-    storage : Arc<Mutex<StorageModel>>,
     _task_handle: JoinHandle<()>,
     /// Marker for type parameter `AHT`.
     _marker: PhantomData<AHT>,
     _marker1: PhantomData<ACT>,
     _marker2: PhantomData<BTCT>,
-    _marker3: PhantomData<BTMT>,
 }
 
-impl<
-        AHT: AdapterHandle + Send,
-        ACT: DataAcquisitionApi + Send,
-        BTCT: BluetoothApi<AHT> + Send,
-        BTMT: BluetoothModelApi<AHT> + Send,
-    > AppController<AHT, ACT, BTCT, BTMT>
+impl<AHT: AdapterHandle + Send, ACT: DataAcquisitionApi + Send, BTCT: BluetoothApi<AHT> + Send>
+    AppController<AHT, ACT, BTCT>
 {
     /// Creates a new `AppController`.
     ///
@@ -62,12 +57,7 @@ impl<
     ///
     /// # Returns
     /// A new `AppController` instance.
-    pub fn new(
-        bt_model: Arc<Mutex<BTMT>>,
-        mut ble_controller: BTCT,
-        acq_controller: ACT,
-        gui_ctx: egui::Context,
-    ) -> Self {
+    pub fn new(mut ble_controller: BTCT, acq_controller: ACT, gui_ctx: egui::Context) -> Self {
         info!("Initializing AppController.");
         let (event_tx, event_rx) = tokio::sync::mpsc::channel(16);
         ble_controller.initialize(event_tx.clone());
@@ -78,7 +68,6 @@ impl<
         let storage = Arc::new(Mutex::new(StorageModel::default()));
         Self {
             view: view.clone(),
-            storage:storage.clone(),
             _task_handle: tokio::spawn(Self::event_handler(
                 ble_controller,
                 acq_controller,
@@ -91,7 +80,6 @@ impl<
             _marker: Default::default(),
             _marker1: Default::default(),
             _marker2: Default::default(),
-            _marker3: Default::default(),
         }
     }
 
@@ -112,7 +100,6 @@ impl<
         event_ch_tx: Sender<AppEvent>,
         gui_ctx: egui::Context,
     ) {
-        
         while let Some(evt) = event_ch_rx.recv().await {
             match evt {
                 AppEvent::Bluetooth(btev) => {
@@ -126,7 +113,7 @@ impl<
                     }
                 }
                 AppEvent::NewAcquisition => {
-                    let _ = acq_controller.new_acquisition();
+                    acq_controller.new_acquisition();
                     *view.lock().await = Box::new(HrvView::new(
                         acq_controller.get_acquisition(),
                         event_ch_tx.clone(),
@@ -151,12 +138,15 @@ impl<
                     {
                         *storage.lock().await = model;
                     }
-                    *view.lock().await = Box::new(StorageView::new(storage.clone(), event_ch_tx.clone()));
+                    *view.lock().await =
+                        Box::new(StorageView::new(storage.clone(), event_ch_tx.clone()));
                 }
                 AppEvent::StoreModel(path) => {
                     let _str = storage.clone();
-                    if let Ok(Ok(json)) =
-                        tokio::task::spawn_blocking(move || serde_json::to_string(&*_str.blocking_lock())).await
+                    if let Ok(Ok(json)) = tokio::task::spawn_blocking(move || {
+                        serde_json::to_string(&*_str.blocking_lock())
+                    })
+                    .await
                     {
                         if let Err(e) = fs::write(&path, json).await {
                             error!("failed to write storage to file: {:?}", e);
@@ -168,16 +158,23 @@ impl<
 
                 AppEvent::NewModel => {
                     //storage = Arc::new(Mutex::new(StorageModel::default()));
-                    *view.lock().await = Box::new(StorageView::new(storage.clone(), event_ch_tx.clone()));
+                    *view.lock().await =
+                        Box::new(StorageView::new(storage.clone(), event_ch_tx.clone()));
                 }
                 AppEvent::StoreAcquisition => {
                     let acq = acq_controller.get_acquisition();
                     storage.lock().await.store_acquisition(acq);
-                    *view.lock().await = Box::new(StorageView::new(storage.clone(), event_ch_tx.clone()));
-                    event_ch_tx.send(AppEvent::Bluetooth(BluetoothEvent::StopListening)).await;
-                },
-                AppEvent::SelectDevice=>{
-                    *view.lock().await = Box::new(BluetoothView::new(ble_controller.get_model().clone(), event_ch_tx.clone()));
+                    *view.lock().await =
+                        Box::new(StorageView::new(storage.clone(), event_ch_tx.clone()));
+                    let _ = event_ch_tx
+                        .send(AppEvent::Bluetooth(BluetoothEvent::StopListening))
+                        .await;
+                }
+                AppEvent::SelectDevice => {
+                    *view.lock().await = Box::new(BluetoothView::new(
+                        ble_controller.get_model().clone(),
+                        event_ch_tx.clone(),
+                    ));
                 }
             }
             gui_ctx.request_repaint();
@@ -185,12 +182,8 @@ impl<
     }
 }
 
-impl<
-        AHT: AdapterHandle + Send,
-        ACT: DataAcquisitionApi + Send,
-        BTCT: BluetoothApi<AHT> + Send,
-        BTMT: BluetoothModelApi<AHT> + Send,
-    > App for AppController<AHT, ACT, BTCT, BTMT>
+impl<AHT: AdapterHandle + Send, ACT: DataAcquisitionApi + Send, BTCT: BluetoothApi<AHT> + Send> App
+    for AppController<AHT, ACT, BTCT>
 {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // TODO: make adjustable

@@ -598,7 +598,7 @@ pub trait BluetoothModelApi<AHT: AdapterHandle>: Debug + Send {
     /// * `status` - `true` if scanning is active, `false` otherwise.
     #[allow(dead_code)]
     fn set_scanning(&mut self, status: bool);
-
+    #[allow(dead_code)]
     fn is_listening_to(&self) -> &Option<BDAddr>;
     fn set_listening(&mut self, device: Option<BDAddr>);
 }

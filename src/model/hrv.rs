@@ -69,9 +69,15 @@ impl HrvSessionData {
             return Self::default();
         }
 
-        let mut new = Self::default();
-        new.stats_window = window;
-        new.filter_value = outlier_filter;
+        let mut new = Self{
+            filter_value:outlier_filter,
+            hr_values: Default::default(),
+            rr_intervals: Default::default(),
+            rr_time: Default::default(),
+            rx_time: Default::default(),
+            stats_window: window,
+            hrv_stats: None
+        };
         // data.hr_values.reserve(additional);
         let start_time = if let Some(window) = window {
             data.last().unwrap().0 - window

@@ -106,10 +106,10 @@ fn stop_acquisition(&mut self) {
                     self.model.lock().await.set_outlier_filter_value(val);
                 }
                 HrvEvent::AcquisitionStartReq=>{
-                    self.acquiring = true
+                    self.start_acquisition();
                 }
                 HrvEvent::AcquisitionStopReq=>{
-                    self.acquiring = false
+                    self.stop_acquisition();
                 }
             }
             Ok(())

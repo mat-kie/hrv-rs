@@ -6,23 +6,22 @@
 use super::bluetooth::HeartrateMessage;
 use crate::model::hrv::{HrvSessionData, HrvStatistics};
 use serde::{Deserialize, Deserializer, Serialize};
-use std::{fmt::Debug, fs, path::PathBuf, sync::{Arc, Mutex}};
+use std::fmt::Debug;
 use time::{Duration, OffsetDateTime};
 
 /// `AcquisitionModelApi` trait.
 ///
 /// Defines the interface for managing acquisition-related data, including runtime measurements,
 /// HRV statistics, and stored acquisitions.
-#[typetag::serde(tag="type")]
-pub trait AcquisitionModelApi: Debug + Send + Sync{
-
+#[typetag::serde(tag = "type")]
+pub trait AcquisitionModelApi: Debug + Send + Sync {
     fn reset(&mut self);
     /// Retrieves the start time of the current acquisition.
     ///
     /// # Returns
     /// An optional `OffsetDateTime` indicating the start time, if available.
     #[allow(dead_code)]
-    fn get_start_time(&self) ->OffsetDateTime;
+    fn get_start_time(&self) -> OffsetDateTime;
 
     /// Retrieves the last heart rate message received.
     ///
@@ -70,12 +69,11 @@ pub trait AcquisitionModelApi: Debug + Send + Sync{
     /// - `window`: A `Duration` representing the new analysis window size.
     fn set_stats_window(&mut self, window: &Duration);
 
-    fn get_session_data(&self)->&HrvSessionData;
+    fn get_session_data(&self) -> &HrvSessionData;
 
-    fn get_messages(&self)->&[(Duration, HeartrateMessage)];
+    fn get_messages(&self) -> &[(Duration, HeartrateMessage)];
 
-    fn get_elapsed_time(&self)->Duration;
-
+    fn get_elapsed_time(&self) -> Duration;
 }
 
 /// Represents the acquisition model, managing HRV-related data and operations.
@@ -122,7 +120,11 @@ impl<'de> Deserialize<'de> for AcquisitionModel {
         let helper = AcquisitionModelHelper::deserialize(deserializer)?;
 
         // Reconstruct `sessiondata` from the `measurements`
-        let sessiondata = HrvSessionData::from_acquisition(&helper.measurements, helper.window, helper.outlier_filter);
+        let sessiondata = HrvSessionData::from_acquisition(
+            &helper.measurements,
+            helper.window,
+            helper.outlier_filter,
+        );
 
         Ok(AcquisitionModel {
             start_time: helper.start_time,
@@ -137,7 +139,8 @@ impl<'de> Deserialize<'de> for AcquisitionModel {
 impl AcquisitionModel {
     /// Updates the session data based on the current measurements.
     fn update(&mut self) {
-        self.sessiondata = HrvSessionData::from_acquisition(&self.measurements, self.window, self.outlier_filter);
+        self.sessiondata =
+            HrvSessionData::from_acquisition(&self.measurements, self.window, self.outlier_filter);
     }
 
     /// Adds a new heart rate measurement.
@@ -146,30 +149,28 @@ impl AcquisitionModel {
         self.measurements.push((elapsed, measurement));
         self.update();
     }
-
 }
 
 #[typetag::serde]
 impl AcquisitionModelApi for AcquisitionModel {
-
-    fn get_elapsed_time(&self)->Duration{
-        if self.measurements.is_empty(){
-            return Duration::default()
-        }else{
+    fn get_elapsed_time(&self) -> Duration {
+        if self.measurements.is_empty() {
+             Duration::default()
+        } else {
             let (ts, _) = self.measurements.last().unwrap();
-            return ts.clone()
+            *ts
         }
     }
 
-    fn reset(&mut self){
+    fn reset(&mut self) {
         self.measurements.clear();
         self.start_time = OffsetDateTime::now_utc();
     }
 
-    fn get_messages(&self)->&[(Duration, HeartrateMessage)] {
+    fn get_messages(&self) -> &[(Duration, HeartrateMessage)] {
         &self.measurements
     }
-    fn get_session_data(&self)->&HrvSessionData {
+    fn get_session_data(&self) -> &HrvSessionData {
         &self.sessiondata
     }
 
@@ -182,7 +183,7 @@ impl AcquisitionModelApi for AcquisitionModel {
     }
 
     fn get_start_time(&self) -> OffsetDateTime {
-        self.start_time.clone()
+        self.start_time
     }
 
     fn get_last_msg(&self) -> Option<HeartrateMessage> {
@@ -213,4 +214,3 @@ impl AcquisitionModelApi for AcquisitionModel {
         self.update();
     }
 }
-
