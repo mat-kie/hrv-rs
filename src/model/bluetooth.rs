@@ -479,4 +479,64 @@ mod tests {
         assert!(msg.sen_has_contact());
         assert!(msg.sen_contact_supported());
     }
+    #[test]
+    fn test_bluetooth_model_adapters() {
+        let mut model = BluetoothModel::default();
+        let adapter1 = AdapterDescriptor::new("Adapter 1".to_string());
+        let adapter2 = AdapterDescriptor::new("Adapter 2".to_string());
+        let mut adapters = vec![adapter1.clone(), adapter2.clone()];
+        model.set_adapters(adapters.clone());
+        adapters.sort_by(|a, b| a.get_uuid().cmp(b.get_uuid()));
+        assert_eq!(model.get_adapters(), &adapters);
+        assert!(model.get_selected_adapter().is_none());
+
+        let uuid = adapter1.get_uuid().clone();
+        model.select_adapter(&uuid).unwrap();
+        assert_eq!(model.get_selected_adapter(), &Some(adapter1));
+    }
+
+    #[test]
+    fn test_bluetooth_model_devices() {
+        let mut model = BluetoothModel::default();
+        let device1 = DeviceDescriptor {
+            name: "Device 1".to_string(),
+            address: BDAddr::from_str_delim("11:22:33:44:55:66").unwrap(),
+        };
+        let device2 = DeviceDescriptor {
+            name: "Device 2".to_string(),
+            address: BDAddr::from_str_delim("11:22:33:44:55:67").unwrap(),
+        };
+        model.set_devices(vec![device1.clone(), device2.clone()]);
+
+        assert_eq!(model.get_devices(), &[device1.clone(), device2.clone()]);
+        assert!(model.get_selected_device().is_none());
+
+        model.select_device(device1.clone());
+        assert_eq!(model.get_selected_device(), &Some(device1));
+    }
+
+    #[test]
+    fn test_bluetooth_model_scanning() {
+        let mut model = BluetoothModel::default();
+        assert!(!model.is_scanning());
+
+        model.set_scanning(true);
+        assert!(model.is_scanning());
+
+        model.set_scanning(false);
+        assert!(!model.is_scanning());
+    }
+
+    #[test]
+    fn test_bluetooth_model_listening() {
+        let mut model = BluetoothModel::default();
+        assert!(model.is_listening_to().is_none());
+
+        let address = BDAddr::from_str_delim("11:22:33:44:55:66").unwrap();
+        model.set_listening(Some(address));
+        assert_eq!(model.is_listening_to(), &Some(address));
+
+        model.set_listening(None);
+        assert!(model.is_listening_to().is_none());
+    }
 }
