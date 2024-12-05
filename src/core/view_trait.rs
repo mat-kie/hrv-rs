@@ -3,7 +3,7 @@
 //! This module defines the `ViewTrait`, which is implemented by all views in the HRV analysis tool.
 //! It provides a standardized interface for rendering and updating views.
 
-use crate::core::events::AppEvent;
+use super::events::UiInputEvent;
 
 /// Trait defining the interface for application views.
 ///
@@ -16,7 +16,9 @@ pub trait ViewApi: Send {
     ///
     /// # Returns
     /// An optional `AppEvent` if the view triggers an action.
-    fn render(&self, ctx: &egui::Context) -> Option<AppEvent>;
-
-    
+    fn render<F: Fn(UiInputEvent) + ?Sized>(
+        &mut self,
+        publish: &F,
+        ctx: &egui::Context,
+    ) -> Result<(), String>;
 }

@@ -1,3 +1,4 @@
+# Based on https://github.com/actions-rs/meta/blob/master/recipes/quickstart.md
 name: Rust CI/CD
 
 on:
@@ -9,67 +10,109 @@ on:
       - main
 
 jobs:
-  build:
-    name: Build and Test
+  check:
+    name: Check
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout Code
+      - name: Checkout sources
         uses: actions/checkout@v4
 
-      - name: Cache Cargo
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
-      - name: Set up Rust
+      - name: Install stable toolchain
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: stable
-          target: x86_64-unknown-linux-gnu
           profile: minimal
+          toolchain: stable
           override: true
 
       - name: Install Dependencies
-        run: sudo apt install libdbus-1-dev pkg-config && rustup component add clippy rustfmt
+        run: sudo apt install libdbus-1-dev pkg-config
 
-      - name: Install cargo-tarpaulin
-        run: cargo install cargo-tarpaulin
+      - name: Run cargo check
+        uses: actions-rs/cargo@v1
+        with:
+          command: check
 
-      - name: Run Clippy (Linting)
-        run: cargo clippy --all-targets --all-features -- -D warnings
+  test:
+    name: Test Suite
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+      
+      - name: Install stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+      - name: Install Dependencies
+        run: sudo apt install libdbus-1-dev pkg-config
+      - name: Run cargo test
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
 
-      - name: Run Tests
-        run: cargo test --all-targets --all-features --verbose
+  lints:
+    name: Lints
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v2
 
-      - name: Build Project
-        run: cargo build --release
+      - name: Install stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+          components: rustfmt, clippy
 
-#      - name: Upload Build Artifacts
-#        if: never()
-#        uses: actions/upload-artifact@v3
-#        with:
-#          name: hrv-rs-build
-#          path: target/release/
-      - name: Run Coverage Analysis
-        run: cargo tarpaulin --out Xml --all-targets --all-features
-        env:
-          RUSTFLAGS: "-C link-dead-code"
-#
-#      - name: Upload coverage reports to Codecov
-#        uses: codecov/codecov-action@v5
-#        with:
-#          token: ${{ secrets.CODECOV_TOKEN }}
-#
-#      - name: Upload to Codecov
-#        uses: codecov/codecov-action@v3
-#        with:
-#          files: tarpaulin-report.xml
-#          fail_ci_if_error: true
-#          flags: unittests
+      - name: Install Dependencies
+        run: sudo apt install libdbus-1-dev pkg-config
+
+      - name: Run cargo fmt
+        uses: actions-rs/cargo@v1
+        with:
+          command: fmt
+          args: --all -- --check
+
+      - name: Run cargo clippy
+        uses: actions-rs/cargo@v1
+        with:
+          command: clippy
+          args: -- -D warnings
+
+  coverage:
+    name: coverage tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 30
+
+      - name: Install stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Install Dependencies
+        run: sudo apt install libdbus-1-dev pkg-config
+
+      - name: Run cargo-tarpaulin
+        uses: actions-rs/tarpaulin@v0.1
+        with:
+          version: '0.15.0'
+          args: '-- --test-threads 1'
+
+      - name: Upload to codecov.io
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{secrets.CODECOV_TOKEN}}
+
+      - name: Archive code coverage results
+        uses: actions/upload-artifact@v3
+        with:
+          name: code-coverage-report
+          path: cobertura.xml

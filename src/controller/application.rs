@@ -3,53 +3,33 @@
 //! This module defines the main controller responsible for orchestrating the application.
 //! It initializes and manages other controllers and coordinates the overall application flow.
 
-use super::{acquisition::DataAcquisitionApi, bluetooth::handle_event};
+use super::acquisition::DataAcquisitionApi;
 use crate::{
     controller::bluetooth::BluetoothApi,
-    core::events::{AppEvent, BluetoothEvent, ViewState},
-    model::{
-        acquisition::AcquisitionModelApi,
-        bluetooth::{AdapterHandle, BluetoothModelApi},
-    },
-    view::manager::ViewManager,
+    core::events::{AppEvent, UiInputEvent},
+    model::{acquisition::AcquisitionModel, storage::StorageModel},
+    view::manager::{ViewManager, ViewState},
 };
 
-use log::{error, info, warn};
-use std::{
-    marker::PhantomData,
-    sync::{Arc, Mutex},
-};
-use tokio::sync::broadcast::{Receiver, Sender};
+use anyhow::Result;
+use log::{error, trace};
+use std::sync::Arc;
+use tokio::fs;
+use tokio::sync::{broadcast::Sender, RwLock};
 
 /// Main application controller.
 ///
 /// This structure manages the lifecycle of other controllers and handles application-level events.
-pub struct AppController<
-    AHT: AdapterHandle + Send + 'static,
-    ACT: DataAcquisitionApi + Send + 'static,
-    BTCT: BluetoothApi<AHT> + Send + 'static,
-    BTMT: BluetoothModelApi<AHT> + Send + 'static,
-    ACMT: AcquisitionModelApi + Send + 'static,
-> {
-    /// Bluetooth model.
-    bt_model: Arc<tokio::sync::Mutex<BTMT>>,
-    /// Acquisition model.
-    acq_model: Arc<Mutex<ACMT>>,
-    /// Bluetooth controller.
+pub struct AppController<ACT: DataAcquisitionApi + Send + 'static, BTCT: BluetoothApi + 'static> {
+    view_tx: Sender<ViewState>,
+    event_bus: Sender<AppEvent>,
     ble_controller: BTCT,
-    /// Data acquisition controller.
     acq_controller: ACT,
-    /// Marker for type parameter `AHT`.
-    _marker: PhantomData<AHT>,
+    storage: Arc<RwLock<StorageModel<AcquisitionModel>>>,
 }
 
-impl<
-        AHT: AdapterHandle + Send,
-        ACT: DataAcquisitionApi + Send,
-        BTCT: BluetoothApi<AHT> + Send,
-        BTMT: BluetoothModelApi<AHT> + Send,
-        ACMT: AcquisitionModelApi + Send,
-    > AppController<AHT, ACT, BTCT, BTMT, ACMT>
+impl<ACT: DataAcquisitionApi + Send + 'static, BTCT: BluetoothApi + 'static>
+    AppController<ACT, BTCT>
 {
     /// Creates a new `AppController`.
     ///
@@ -62,44 +42,114 @@ impl<
     /// # Returns
     /// A new `AppController` instance.
     pub fn new(
-        bt_model: Arc<tokio::sync::Mutex<BTMT>>,
-        acq_model: Arc<Mutex<ACMT>>,
         ble_controller: BTCT,
         acq_controller: ACT,
+        storage: Arc<RwLock<StorageModel<AcquisitionModel>>>,
+        event_bus: Sender<AppEvent>,
     ) -> Self {
-        info!("Initializing AppController.");
+        trace!("Initializing AppController.");
+        let (vtx, _) = tokio::sync::broadcast::channel(16);
         Self {
-            bt_model,
-            acq_model,
+            view_tx: vtx.clone(),
+            event_bus: event_bus.clone(),
             ble_controller,
             acq_controller,
-            _marker: Default::default(),
+            storage,
         }
     }
 
-    /// Launches the application.
-    ///
-    /// This initializes the UI context, starts event handling, and sets up the main view.
-    ///
-    /// # Arguments
-    /// - `gui_ctx`: The GUI context.
-    ///
-    /// # Returns
-    /// The view manager to coordinate application views.
-    pub fn launch(mut self, gui_ctx: egui::Context) -> ViewManager<AHT> {
-        let (view_tx, view_rx) = tokio::sync::broadcast::channel(16);
-        let (event_tx, event_rx) = tokio::sync::broadcast::channel(16);
-        self.ble_controller.initialize(event_tx.clone());
-        view_tx
-            .send(ViewState::BluetoothSelectorView(self.bt_model.clone()))
-            .unwrap_or_else(|e| {
-                warn!("Failed to send initial ViewState: {}", e);
-                0
-            });
+    pub fn get_viewmanager(&self) -> ViewManager {
+        ViewManager::new(self.view_tx.subscribe(), self.event_bus.clone())
+    }
 
-        std::mem::drop(tokio::spawn(self.event_handler(view_tx, event_rx, gui_ctx)));
-        let _ = event_tx.send(AppEvent::Bluetooth(BluetoothEvent::DiscoverAdapters));
-        ViewManager::new(view_rx, event_tx)
+    async fn ui_event(&mut self, event: UiInputEvent) -> Result<()> {
+        match event {
+            UiInputEvent::TimeWindowChanged(time) => {
+                self.acq_controller.set_stats_window(&time).await?;
+            }
+            UiInputEvent::OutlierFilterChanged(val) => {
+                // TODO: Implement outlier filter update logic.
+                self.acq_controller.set_outlier_filter_value(val).await?;
+            }
+
+            UiInputEvent::AcquisitionStopReq => {
+                self.acq_controller.stop_acquisition()?;
+                self.ble_controller.stop_listening().await?;
+            }
+            UiInputEvent::AcquisitionStartReq => {
+                let m = self.acq_controller.start_acquisition()?;
+                self.ble_controller.start_listening().await?;
+                self.view_tx.send(ViewState::Acquisition((
+                    m,
+                    self.ble_controller.get_model()?,
+                )))?;
+            }
+            UiInputEvent::StoredAcqSelected(idx) => {
+                self.acq_controller.set_active_acq(idx).await?;
+            }
+            UiInputEvent::DiscardAcquisition => {
+                self.ble_controller.stop_listening().await?;
+                self.acq_controller.discard_acquisition()?;
+                self.view_tx
+                    .send(ViewState::Overview(self.storage.clone().into()))?;
+            }
+            UiInputEvent::StoreAcquisition => {
+                self.ble_controller.stop_listening().await?;
+                self.acq_controller.store_acquisition().await?;
+                self.view_tx
+                    .send(ViewState::Overview(self.storage.clone().into()))?;
+            }
+            UiInputEvent::SelectAdapter(adapter) => {
+                self.ble_controller.select_adapter(&adapter).await?;
+                self.ble_controller.start_scan().await?;
+            }
+            UiInputEvent::SelectPeripheral(peri) => {
+                self.ble_controller.select_peripheral(&peri).await?;
+                self.ble_controller.stop_scan().await?;
+            }
+            UiInputEvent::PrepareAcquisition => {
+                let m = self.acq_controller.start_acquisition()?;
+                self.view_tx.send(ViewState::Acquisition((
+                    m,
+                    self.ble_controller.get_model()?,
+                )))?;
+            }
+            UiInputEvent::LoadModel(path) => {
+                let json = fs::read_to_string(&path).await?;
+                //
+
+                if let Ok(Ok(sm)) = tokio::task::spawn_blocking(move || {
+                    let serde_result: Result<StorageModel<AcquisitionModel>, serde_json::Error> =
+                        serde_json::from_str(json.as_str());
+                    serde_result.map_err(|o| o.to_string())
+                })
+                .await
+                {
+                    *self.storage.write().await = sm;
+                }
+                self.view_tx
+                    .send(ViewState::Overview(self.storage.clone().into()))?;
+            }
+            UiInputEvent::StoreModel(path) => {
+                let _str = self.storage.clone();
+                if let Ok(Ok(json)) = tokio::task::spawn_blocking(move || {
+                    serde_json::to_string(&*_str.blocking_read())
+                })
+                .await
+                {
+                    if let Err(e) = fs::write(&path, json).await {
+                        error!("failed to write storage to file: {:?}", e);
+                    }
+                } else {
+                    error!("failed to serialize storage");
+                }
+            }
+            UiInputEvent::NewModel => {
+                self.view_tx
+                    .send(ViewState::Overview(self.storage.clone().into()))?;
+            }
+        }
+        Ok(())
     }
 
     /// Asynchronous event handler.
@@ -110,42 +160,39 @@ impl<
     /// - `view_ch`: Sender for view updates.
     /// - `event_ch`: Receiver for application events.
     /// - `gui_ctx`: The GUI context.
-    async fn event_handler(
-        mut self,
-        view_ch: Sender<ViewState<AHT>>,
-        mut event_ch: Receiver<AppEvent>,
-        gui_ctx: egui::Context,
-    ) {
-        while let Ok(evt) = event_ch.recv().await {
+    pub async fn event_handler(mut self, gui_ctx: egui::Context) {
+        let mut event_ch_rx = self.event_bus.subscribe();
+        while let Err(e) = self
+            .view_tx
+            .send(ViewState::Overview(self.storage.clone().into()))
+        {
+            error!(
+                "could not send initial viewstate, trying again in 5 sec: {}",
+                e
+            );
+            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+        }
+        while let Err(e) = self.ble_controller.discover_adapters().await {
+            error!(
+                "could not discover adapters: {}. trying again in 5 seconds",
+                e
+            );
+            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+        }
+        while let Ok(evt) = event_ch_rx.recv().await {
             match evt {
-                AppEvent::Bluetooth(btev) => {
-                    if let Err(e) = handle_event(&mut self.ble_controller, btev).await {
-                        error!("Bluetooth event error: {:?}", e);
-                    }
-
-                    if let Err(e) = if self.bt_model.lock().await.is_listening_to().is_some() {
-                        view_ch.send(ViewState::AcquisitionView(self.acq_model.clone()))
-                    } else {
-                        view_ch.send(ViewState::BluetoothSelectorView(self.bt_model.clone()))
-                    } {
-                        error!("Failed to send ViewState update: {}", e);
-                    }
-                }
-                AppEvent::Data(hrev) => {
-                    if let Err(e) = self.acq_controller.handle_event(hrev) {
-                        error!("Failed to handle HRV event: {}", e);
-                    }
-                }
-                AppEvent::AcquisitionStartReq => {
-                    self.acq_controller.new_acquisition();
-                }
-                AppEvent::AcquisitionStopReq => {
-                    if let Err(e) = self.acq_controller.store_acquisition() {
-                        error!("Failed to store acquisition: {}", e);
+                AppEvent::Bluetooth(_btev) => {}
+                AppEvent::UiInput(event) => {
+                    if let Err(e) = self.ui_event(event).await {
+                        error!(
+                            "error during UiEvent handling: {}\n backtrace:\n{}",
+                            e,
+                            e.backtrace()
+                        );
                     }
                 }
             }
-            gui_ctx.request_repaint();
         }
+        gui_ctx.request_repaint();
     }
 }
