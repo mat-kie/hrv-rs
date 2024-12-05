@@ -9,7 +9,7 @@ use crate::{
     core::events::{AppEvent, BluetoothEvent},
     model::{
         acquisition::AcquisitionModelApi,
-        storage::{ModelHandle, StorageModel, StorageModelApi},
+        storage::{ModelHandle, StorageModelApi},
     },
 };
 use anyhow::{anyhow, Result};
@@ -53,9 +53,13 @@ pub trait DataAcquisitionApi {
 ///
 /// # Type Parameters
 /// * `AMT` - A type that implements the `AcquisitionModelApi` trait, representing the underlying data model.
-pub struct AcquisitionController<AMT: AcquisitionModelApi + Default> {
+pub struct AcquisitionController<AMT, SMT>
+where
+    AMT: AcquisitionModelApi + Default + Serialize + DeserializeOwned + 'static,
+    SMT: StorageModelApi<AcqModelType = AMT> + Send + Sync,
+{
     /// A thread-safe, shared reference to the acquisition model.
-    model: Arc<RwLock<StorageModel<AMT>>>,
+    model: Arc<RwLock<SMT>>,
     /// A sender for broadcasting application events.
     event_bus: Sender<AppEvent>,
     /// A handle for the listener task.
@@ -64,16 +68,20 @@ pub struct AcquisitionController<AMT: AcquisitionModelApi + Default> {
     active_acquisition: Option<Arc<RwLock<AMT>>>,
 }
 
-impl<AMT: AcquisitionModelApi + Default> AcquisitionController<AMT> {
+impl<AMT, SMT> AcquisitionController<AMT, SMT>
+where
+    AMT: AcquisitionModelApi + Default + Serialize + DeserializeOwned + 'static,
+    SMT: StorageModelApi<AcqModelType = AMT> + Send + Sync,
+{
     /// Creates a new `AcquisitionController` instance.
     ///
     /// # Arguments
-    /// * `model` - An `Arc<RwLock<StorageModel<AMT>>>` representing the thread-safe shared model.
+    /// * `model` - An `Arc<RwLock<SMT>>` representing the thread-safe shared model.
     /// * `event_bus` - A `Sender<AppEvent>` for broadcasting application events.
     ///
     /// # Returns
     /// A new instance of `AcquisitionController`.
-    pub fn new(model: Arc<RwLock<StorageModel<AMT>>>, event_bus: Sender<AppEvent>) -> Self {
+    pub fn new(model: Arc<RwLock<SMT>>, event_bus: Sender<AppEvent>) -> Self {
         Self {
             model,
             event_bus,
@@ -116,8 +124,10 @@ impl<AMT: AcquisitionModelApi + Default> AcquisitionController<AMT> {
 }
 
 #[async_trait]
-impl<AMT: AcquisitionModelApi + Default + Serialize + DeserializeOwned + 'static> DataAcquisitionApi
-    for AcquisitionController<AMT>
+impl<AMT, SMT> DataAcquisitionApi for AcquisitionController<AMT, SMT>
+where
+    AMT: AcquisitionModelApi + Default + Serialize + DeserializeOwned + 'static,
+    SMT: StorageModelApi<AcqModelType = AMT> + Send + Sync + 'static,
 {
     async fn set_active_acq(&mut self, idx: usize) -> Result<()> {
         let model = self.model.read().await;
@@ -128,7 +138,7 @@ impl<AMT: AcquisitionModelApi + Default + Serialize + DeserializeOwned + 'static
             Err(anyhow!(
                 "requested an out of bounds acquisition index: {}, #acquisitions: {}",
                 idx,
-                model.get_acquisitions().len()
+                model.get_mut_acquisitions().len()
             ))
         }
     }
@@ -180,5 +190,147 @@ impl<AMT: AcquisitionModelApi + Default + Serialize + DeserializeOwned + 'static
                 "Tried to store an acquisition while none was active"
             ))
         }
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{acquisition::AcquisitionModel, storage::MockStorageModelApi};
+    use tokio::sync::broadcast;
+
+    #[tokio::test]
+    async fn test_start_acquisition() {
+        let (tx, _rx) = broadcast::channel(16);
+        let model = Arc::new(RwLock::new(MockStorageModelApi::default()));
+        let mut controller = AcquisitionController::new(model, tx);
+
+        let result = controller.start_acquisition();
+        assert!(result.is_ok());
+        assert!(controller.active_acquisition.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_stop_acquisition() {
+        let (tx, _rx) = broadcast::channel(16);
+        let model = Arc::new(RwLock::new(MockStorageModelApi::default()));
+        let mut controller = AcquisitionController::new(model, tx);
+
+        controller.start_acquisition().unwrap();
+        let result = controller.stop_acquisition();
+        assert!(result.is_ok());
+        assert!(controller.listener_handle.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_discard_acquisition() {
+        let (tx, _rx) = broadcast::channel(16);
+        let model = Arc::new(RwLock::new(MockStorageModelApi::default()));
+        let mut controller = AcquisitionController::new(model, tx);
+
+        controller.start_acquisition().unwrap();
+        let result = controller.discard_acquisition();
+        assert!(result.is_ok());
+        assert!(controller.active_acquisition.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_store_acquisition() {
+        let (tx, _rx) = broadcast::channel(16);
+        let model = Arc::new(RwLock::new(MockStorageModelApi::default()));
+        model
+            .write()
+            .await
+            .expect_store_acquisition()
+            .once()
+            .return_const(());
+        let mut controller = AcquisitionController::new(model, tx);
+
+        controller.start_acquisition().unwrap();
+        let result = controller.store_acquisition().await;
+        assert!(result.is_ok());
+        assert!(controller.active_acquisition.is_none());
+        let result = controller.store_acquisition().await;
+        assert!(result.is_err());
+        assert!(controller.active_acquisition.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_set_active_acq() {
+        let (tx, _rx) = broadcast::channel(16);
+        let model = Arc::new(RwLock::new(MockStorageModelApi::default()));
+        model
+            .write()
+            .await
+            .expect_get_mut_acquisitions()
+            .times(1..)
+            .return_const(Vec::default());
+        let mut controller = AcquisitionController::new(model, tx);
+        controller.start_acquisition().unwrap();
+        let result = controller.set_active_acq(0).await;
+        assert!(controller.active_acquisition.is_some());
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_set_active_acq_nonzero() {
+        let (tx, _rx) = broadcast::channel(16);
+        let vec = vec![Arc::new(RwLock::new(AcquisitionModel::default()))];
+        let model = Arc::new(RwLock::new(MockStorageModelApi::default()));
+        model
+            .write()
+            .await
+            .expect_get_mut_acquisitions()
+            .times(1..)
+            .return_const(vec);
+        let mut controller = AcquisitionController::new(model, tx);
+        let result = controller.set_active_acq(0).await;
+        assert!(result.is_ok());
+        assert!(controller.active_acquisition.is_some());
+        let result = controller.set_active_acq(1).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_set_stats_window() {
+        let (tx, _rx) = broadcast::channel(16);
+        let model = Arc::new(RwLock::new(MockStorageModelApi::default()));
+        let mut controller = AcquisitionController::new(model, tx);
+
+        controller.start_acquisition().unwrap();
+        let window = Duration::seconds(60);
+        let result = controller.set_stats_window(&window).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_set_outlier_filter_value() {
+        let (tx, _rx) = broadcast::channel(16);
+        let model = Arc::new(RwLock::new(MockStorageModelApi::default()));
+        let mut controller = AcquisitionController::new(model, tx);
+
+        controller.start_acquisition().unwrap();
+        let result = controller.set_outlier_filter_value(1.5).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_get_active_acq() {
+        let (tx, _rx) = broadcast::channel(16);
+        let model = Arc::new(RwLock::new(MockStorageModelApi::default()));
+        let mut controller = AcquisitionController::new(model, tx);
+
+        controller.start_acquisition().unwrap();
+        let result = controller.get_active_acq();
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_get_active_acq_none() {
+        let (tx, _rx) = broadcast::channel(16);
+        let model = Arc::new(RwLock::new(MockStorageModelApi::default()));
+        let controller = AcquisitionController::new(model, tx);
+
+        let result = controller.get_active_acq();
+        assert!(result.is_err());
     }
 }

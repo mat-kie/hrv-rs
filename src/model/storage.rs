@@ -8,15 +8,18 @@
 
 use std::sync::Arc;
 
+use mockall::automock;
 use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize, Serializer};
 use tokio::sync::{RwLock, RwLockReadGuard};
 
+use super::acquisition::AcquisitionModel;
 use super::acquisition::AcquisitionModelApi;
 
 /// Trait defining the interface for storage models.
 ///
 /// This trait allows for managing a collection of acquisition models,
 /// providing methods to access, store, and delete acquisitions.
+#[automock(type AcqModelType = AcquisitionModel;)]
 pub trait StorageModelApi: Sync + Send {
     /// The type of acquisition model being stored, which must implement `AcquisitionModelApi`,
     /// `Serialize`, and `DeserializeOwned`.
