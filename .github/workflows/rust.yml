@@ -112,7 +112,7 @@ jobs:
           token: ${{secrets.CODECOV_TOKEN}}
 
       - name: Archive code coverage results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: code-coverage-report
           path: cobertura.xml
@@ -133,7 +133,7 @@ jobs:
           command: build
           args: --release --target=x86_64-pc-windows-gnu
       - name: Upload binaries
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: windows-binary
           path: target/x86_64-pc-windows-gnu/release/hrv-rs*
@@ -155,7 +155,7 @@ jobs:
           command: build
           args: --release 
       - name: Upload binaries
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: linux-binary
           path: target/release/hrv-rs*
