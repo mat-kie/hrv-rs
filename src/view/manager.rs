@@ -1,125 +1,98 @@
-//! View Manager
-//!
-//! This module provides the view management layer for the HRV analysis tool.
-//! It includes structures and methods for switching between different views and managing their lifecycle.
+use std::sync::Arc;
+
+use eframe::App;
+use log::error;
+use tokio::{sync::{
+    broadcast::{Receiver, Sender},
+    RwLock,
+}, task::JoinHandle};
 
 use crate::{
-    core::{
-        events::{AppEvent, ViewState},
-        view_trait::ViewApi,
+    core::{events::{AppEvent, UiInputEvent}, view_trait::ViewApi},
+    model::{
+        acquisition::{AcquisitionModel, AcquisitionModelApi},
+        bluetooth::BluetoothModelApi,
+        storage::{ModelHandle, StorageModel},
     },
-    model::bluetooth::AdapterHandle,
-    view::{bluetooth::BluetoothView, hrv_analysis::HrvView},
-};
-use eframe::App;
-use log::{error, info, warn};
-use std::{
-    marker::PhantomData,
-    sync::{Arc, Mutex},
-};
-use tokio::{
-    sync::broadcast::{error::RecvError, Sender},
 };
 
-/// `ViewManager<AHT>` structure.
-///
-/// Manages UI views and facilitates transitions based on application state.
-/// This structure allows switching between multiple views and handles their lifecycle.
-pub struct ViewManager<AHT: AdapterHandle + Send> {
-    /// Shared reference to the currently active view.
-    current_view: Arc<Mutex<Option<Box<dyn ViewApi>>>>,
-    /// Task handle for the view state update listener.
-    /// Event channel for sending application events from views.
-    event_ch: Sender<AppEvent>,
-    /// Marker to track the generic adapter handle type.
-    _marker: PhantomData<AHT>,
+use super::{ acquisition::AcquisitionView, overview::StorageView};
+
+#[derive(Clone)]
+pub enum ViewState {
+    Overview(ModelHandle<StorageModel<AcquisitionModel>>),
+    Acquisition((ModelHandle<dyn AcquisitionModelApi>, ModelHandle<dyn BluetoothModelApi>)),
 }
 
-impl<AHT: AdapterHandle + Send + 'static> ViewManager<AHT> {
-    /// Creates a new `ViewManager` and starts a task to listen for view state changes.
-    ///
-    /// # Arguments
-    /// * `rx_channel` - A receiver for `ViewState` updates.
-    /// * `event_ch` - A channel for sending `AppEvent` messages from views.
-    ///
-    /// # Returns
-    /// A new instance of `ViewManager`.
-    pub fn new(
-        mut rx_channel: tokio::sync::broadcast::Receiver<ViewState<AHT>>,
-        event_ch: Sender<AppEvent>,
-    ) -> Self {
-        let current_view = Arc::new(Mutex::new(None));
-        let view_clone = Arc::clone(&current_view);
+enum View {
+    NoView,
+    Overview(StorageView<StorageModel<AcquisitionModel>>),
+    Acquisition(AcquisitionView),
+}
 
-        // Spawn a task to handle view state transitions.
-        tokio::spawn(async move {
-            loop {
-                match rx_channel.recv().await {
-                    Ok(state) => {
-                        info!("Received ViewState update");
-                        ViewManager::update_view(view_clone.clone(), state);
-                    }
-                    Err(RecvError::Closed) => {
-                        warn!("View state receiver channel closed.");
-                        break;
-                    }
-                    Err(RecvError::Lagged(count)) => {
-                        warn!("View state receiver lagged by {} messages.", count);
-                    }
-                }
-                tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
-            }
-        });
+impl ViewApi for View {
+    fn render<F: Fn(UiInputEvent) + ?Sized>(
+        &mut self,
+        publish: &F,
+        ctx: &egui::Context,
+    ) -> Result<(), String> {
+        match self {
+            Self::Overview(v) => v.render(publish, ctx),
+            Self::Acquisition(v) => v.render(publish, ctx),
+            Self::NoView=>{Ok(())}
+        }
+    }
+}
 
+impl From<ViewState> for View {
+    fn from(val: ViewState) -> Self {
+        match val {
+            ViewState::Acquisition((model, bt_model)) => View::Acquisition(AcquisitionView::new(model, bt_model)),
+            ViewState::Overview(model) => {
+                View::Overview(StorageView::<StorageModel<AcquisitionModel>>::new(model))
+            },
+        }
+    }
+}
+pub struct ViewManager {
+    e_tx: Sender<AppEvent>,
+    active_view: Arc<RwLock<View>>,
+    _task_handle: JoinHandle<()>
+}
+
+impl ViewManager {
+    pub fn new(mut v_rx: Receiver<ViewState>, e_tx: Sender<AppEvent>) -> Self {
+      let active_view = Arc::new(RwLock::new(View::NoView));
+      let task_view = active_view.clone();
+      let _task_handle = 
+      tokio::spawn(async move{
+        while let Ok(s) = v_rx.recv().await{
+          *task_view.write().await = s.into();
+        }
+      });
+        
         Self {
-            current_view,
-            event_ch,
-            _marker: Default::default(),
+            e_tx,
+            active_view,
+            _task_handle
         }
     }
 
-    /// Updates the current view based on the given `ViewState`.
-    ///
-    /// # Arguments
-    /// * `current_view` - A shared reference to the current view.
-    /// * `state` - The new `ViewState` to transition to.
-    fn update_view(current_view: Arc<Mutex<Option<Box<dyn ViewApi>>>>, state: ViewState<AHT>) {
-        let mut view_guard = current_view.lock().unwrap();
-        *view_guard = match state {
-            ViewState::BluetoothSelectorView(model) => {
-                info!("Switching to BluetoothSelectorView");
-                Some(Box::new(BluetoothView::new(model)))
-            }
-            ViewState::AcquisitionView(model) => {
-                info!("Switching to AcquisitionView");
-                Some(Box::new(HrvView::new(model)))
-            }
-        };
+    fn publish(&self, event: UiInputEvent) {
+        if let Err(e)  =self.e_tx.send(AppEvent::UiInput(event)){
+            error!("View failed to send event:{}", e.to_string())
+        }
     }
 }
 
-impl<AHT: AdapterHandle + Send> App for ViewManager<AHT> {
-    /// Updates the current view and processes events.
-    ///
-    /// # Arguments
-    /// * `ctx` - The `egui::Context` for rendering.
-    /// * `_frame` - The `eframe::Frame` for controlling the application window.
+impl App for ViewManager {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        match self.current_view.lock() {
-            Ok(view_guard) => {
-                if let Some(view) = &*view_guard {
-                    if let Some(event) = view.render(ctx) {
-                        if let Err(err) = self.event_ch.send(event) {
-                            error!("Failed to send view event: {}", err);
-                        }
-                    }
-                } else {
-                    warn!("No active view to render.");
-                }
+        ctx.set_pixels_per_point(1.5);
+        if let Err(e) = 
+        self.active_view
+            .blocking_write()
+            .render(&|e| self.publish(e), ctx){
+                error!("view failed to render: {}", e)
             }
-            Err(err) => {
-                error!("Failed to acquire lock on current view: {}", err);
-            }
-        }
     }
 }

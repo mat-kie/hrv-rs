@@ -4,33 +4,31 @@
 //! It includes structures and methods for rendering the Bluetooth device selector and interaction UI.
 
 use eframe::egui;
-use std::{marker::PhantomData, sync::Arc};
+use egui::Color32;
 
 use crate::{
-    core::{events::AppEvent, events::BluetoothEvent, view_trait::ViewApi},
-    model::bluetooth::{AdapterHandle, BluetoothModelApi},
+    core::{
+        events::UiInputEvent,
+        view_trait::ViewApi,
+    },
+    model::{bluetooth::BluetoothModelApi, storage::ModelHandle},
 };
 
 /// The `BluetoothView` renders a UI for selecting Bluetooth adapters and devices.
 ///
 /// Represents the view for managing Bluetooth interactions, such as device selection and connection.
-pub struct BluetoothView<AHT: AdapterHandle> {
+pub struct BluetoothView {
     /// The shared Bluetooth model that provides adapter and device information.
-    model: Arc<tokio::sync::Mutex<dyn BluetoothModelApi<AHT>>>,
-    /// A marker to track the generic type for the adapter handle.
-    _marker: PhantomData<AHT>,
+    model: ModelHandle<dyn BluetoothModelApi>,
 }
 
-impl<AHT: AdapterHandle> BluetoothView<AHT> {
+impl BluetoothView {
     /// Creates a new `BluetoothView` instance.
     ///
     /// # Arguments
     /// * `model` - Shared access to the `BluetoothModel`.
-    pub fn new(model: Arc<tokio::sync::Mutex<dyn BluetoothModelApi<AHT>>>) -> Self {
-        Self {
-            model,
-            _marker: Default::default(),
-        }
+    pub fn new(model: ModelHandle<dyn BluetoothModelApi>) -> Self {
+        Self { model }
     }
 
     /// Renders the list of Bluetooth adapters and returns the selected adapter index if clicked.
@@ -40,15 +38,23 @@ impl<AHT: AdapterHandle> BluetoothView<AHT> {
     ///
     /// # Returns
     /// An optional `AppEvent` triggered by adapter selection.
-    fn render_adapters(&self, ui: &mut egui::Ui) -> Option<AppEvent> {
-        let model = self.model.blocking_lock();
+    fn render_adapters<F: Fn(UiInputEvent)>(&self, ui: &mut egui::Ui, publish: &F) {
+        let model = self.model.blocking_read();
+        let selected = model.get_selected_adapter();
         ui.label("Select a Bluetooth Adapter:");
-        for (adapter_name, uuid) in model.get_adapter_names() {
-            if ui.button(adapter_name).clicked() {
-                return Some(AppEvent::Bluetooth(BluetoothEvent::AdapterSelected(uuid)));
+        for adapter in model.get_adapters() {
+            let mut btn = egui::Button::new(adapter.get_name());
+            if let Some(sel) = selected {
+                if adapter == sel {
+                    btn = btn.fill(Color32::DARK_BLUE);
+                }
+            }
+            if ui.add(btn).clicked() {
+                publish(UiInputEvent::SelectAdapter(
+                    adapter.clone(),
+                ));
             }
         }
-        None
     }
 
     /// Renders the list of discovered Bluetooth devices and returns the selected device address if clicked.
@@ -58,15 +64,22 @@ impl<AHT: AdapterHandle> BluetoothView<AHT> {
     ///
     /// # Returns
     /// An optional `AppEvent` triggered by device selection.
-    fn render_devices(&self, ui: &mut egui::Ui) -> Option<AppEvent> {
-        let model = self.model.blocking_lock();
+    fn render_devices<F: Fn(UiInputEvent)>(&self, ui: &mut egui::Ui, publish: &F) {
+        let model = self.model.blocking_read();
         ui.heading("Discovered Devices:");
-        for (addr, device) in model.get_devices() {
-            if ui.button(device).clicked() {
-                return Some(AppEvent::Bluetooth(BluetoothEvent::StartListening(*addr)));
-            }
+
+        for device in model.get_devices() {
+            ui.vertical(|ui| {
+                let btn = egui::Button::new(device.name.clone());
+
+                if ui.add_sized([ui.available_width(), 20.0], btn).clicked() {
+                    publish(UiInputEvent::SelectPeripheral(
+                        device.clone(),
+                    ));
+                    publish(UiInputEvent::AcquisitionStartReq);
+                }
+            });
         }
-        None
     }
 
     /// Renders the scanning status in the UI.
@@ -74,14 +87,14 @@ impl<AHT: AdapterHandle> BluetoothView<AHT> {
     /// # Arguments
     /// * `ui` - The egui UI element for rendering.
     fn render_scanning_status(&self, ui: &mut egui::Ui) {
-        let model = self.model.blocking_lock();
+        let model = self.model.blocking_read();
         if model.is_scanning() {
             ui.label("Scanning...");
         }
     }
 }
 
-impl<AHT: AdapterHandle + Send + 'static> ViewApi for BluetoothView<AHT> {
+impl ViewApi for BluetoothView {
     /// Renders the complete Bluetooth view UI.
     ///
     /// # Arguments
@@ -89,23 +102,20 @@ impl<AHT: AdapterHandle + Send + 'static> ViewApi for BluetoothView<AHT> {
     ///
     /// # Returns
     /// An optional `AppEvent` triggered by user interactions.
-    fn render(&self, ctx: &egui::Context) -> Option<AppEvent> {
-        egui::CentralPanel::default()
-            .show(ctx, |ui| {
-                ui.heading("Bluetooth Scanner");
-
-                let selected_adapter = self.render_adapters(ui);
-                if selected_adapter.is_some() {
-                    return selected_adapter;
-                }
+    fn render<F: Fn(UiInputEvent) + ?Sized>(
+        &mut self,
+        publish: &F,
+        ctx: &egui::Context,
+    ) -> Result<(), String> {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.heading("Please select Bluetooth device");
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                self.render_adapters(ui, &publish);
                 self.render_scanning_status(ui);
                 ui.separator();
-                let selected_peripheral = self.render_devices(ui);
-                if selected_peripheral.is_some() {
-                    return selected_peripheral;
-                }
-                None
+                self.render_devices(ui,&publish);
             })
-            .inner
+        });
+        Ok(())
     }
 }

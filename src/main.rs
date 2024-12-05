@@ -9,11 +9,12 @@ use controller::{
 };
 use eframe::NativeOptions;
 use env_logger::Env;
-use model::bluetooth::BluetoothAdapter;
+
+use model::storage::StorageModel;
 use model::{acquisition::AcquisitionModel, bluetooth::BluetoothModel};
 use std::sync::Arc;
 use tokio::runtime::Runtime;
-use tokio::sync::Mutex;
+use tokio::sync::{broadcast, RwLock};
 
 /// Core utilities and traits used throughout the application.
 mod core {
@@ -51,15 +52,17 @@ mod model {
     pub mod bluetooth;
     /// Model for HRV-related data storage and processing.
     pub mod hrv;
+    pub mod storage;
 }
 
 /// UI-related components for the application.
 mod view {
     /// Bluetooth device management UI.
-    pub mod bluetooth;
     /// HRV analysis user interface.
-    pub mod hrv_analysis;
-    /// View manager for coordinating multiple views.
+    pub mod acquisition;
+
+    pub mod overview;
+
     pub mod manager;
 }
 
@@ -80,26 +83,28 @@ fn main() {
     let rt = Runtime::new().expect("Unable to create Runtime");
     let _enter = rt.enter();
 
+    let (event_bus, _) = broadcast::channel(16);
+
     // Shared state for Bluetooth model.
-    let bluetooth_model = Arc::new(Mutex::new(BluetoothModel::<BluetoothAdapter>::default()));
+    let bluetooth_model = Arc::new(RwLock::new(BluetoothModel::default()));
+    let storage = Arc::new(RwLock::new(StorageModel::<AcquisitionModel>::default()));
     // Shared state for acquisition model.
-    let acquisition_model = Arc::new(std::sync::Mutex::new(AcquisitionModel::default()));
 
     // Initialize application controller with models and controllers.
-    let app_controller = AppController::new(
-        bluetooth_model.clone(),
-        acquisition_model.clone(),
-        BluetoothController::new(bluetooth_model.clone()),
-        AcquisitionController::new(acquisition_model.clone()),
-    );
 
     // Start the eframe application with the main view manager.
     eframe::run_native(
-        "Bluetooth Scanner",
+        "Hrv-rs",
         NativeOptions::default(),
         Box::new(|cc| {
-            let view_manager = app_controller.launch(cc.egui_ctx.clone());
-            Ok(Box::new(view_manager))
+            let app = AppController::new(
+                BluetoothController::new(bluetooth_model, event_bus.clone()),
+                AcquisitionController::new(storage.clone(), event_bus.clone()),
+                storage,
+                event_bus,
+                cc.egui_ctx.clone(),
+            );
+            Ok(Box::new(app.get_viewmanager()))
         }),
     )
     .expect("Failed to start eframe application");

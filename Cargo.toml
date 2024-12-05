@@ -3,6 +3,9 @@ name = "hrv-rs"
 version = "0.2.0"
 edition = "2021"
 
+[features]
+mock=[]
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
@@ -27,3 +30,5 @@ serde = { version = "1.0.215", features = ["derive", "serde_derive"] }
 serde_json = "1.0.133"
 async-trait = "0.1.83"
 mockall = "0.13.1"
+rand = "0.8.5"
+typetag = "0.2.18"

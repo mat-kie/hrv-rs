@@ -3,21 +3,10 @@
 //! This module defines the model and utility structures for managing Bluetooth-related data in the HRV analysis tool.
 //! It provides abstractions for interacting with Bluetooth adapters, devices, and Heart Rate Service (HRS) messages.
 
-use crate::core::constants::HEARTRATE_MEASUREMENT_UUID;
-use crate::core::events::{AppEvent, HrvEvent};
-use crate::map_err;
-use btleplug::api::{Peripheral, ScanFilter};
-use btleplug::{
-    api::{BDAddr, Central, Manager as _},
-    platform::{Adapter, Manager},
-};
-use futures::StreamExt;
+use btleplug::api::BDAddr;
 use serde::{Deserialize, Serialize};
 use std::fmt;
-use std::pin::Pin;
-use std::{fmt::Debug, future::Future};
-use tokio::sync::broadcast::Sender;
-use tokio::task::JoinHandle;
+use std::fmt::Debug;
 use uuid::Uuid;
 
 /// Helper macro to check if a specific bit is set in a byte.
@@ -186,7 +175,7 @@ impl fmt::Display for HeartrateMessage {
 ///
 /// This structure stores the basic details of a discovered Bluetooth device,
 /// including its name and address.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct DeviceDescriptor {
     /// The name of the device, if available.
     pub name: String,
@@ -194,261 +183,57 @@ pub struct DeviceDescriptor {
     pub address: BDAddr,
 }
 
-/// A trait representing a handle for interacting with Bluetooth adapters.
-///
-/// This trait provides a unified interface for performing Bluetooth operations,
-/// such as scanning for peripherals, managing connections, and retrieving adapter information.
-/// It abstracts over `btleplug`'s `Central` implementation for flexible usage and testing.
-pub trait AdapterHandle: PartialOrd + Clone + Send + Sync {
-    /// The type of the underlying `Central` implementation for this adapter.
-    type CentralType: Send + Sync;
-
-    // --- Adapter Metadata ---
-
-    /// Creates a new adapter handle.
-    ///
-    /// # Arguments
-    /// * `adapter` - The `Central` instance representing the Bluetooth adapter.
-    /// * `name` - A human-readable name for the adapter.
-    ///
-    /// # Returns
-    /// A new instance of the implementing type.
-    fn new(adapter: Self::CentralType, name: &str) -> Self;
-
-    /// Retrieves the human-readable name of the adapter.
-    ///
-    /// # Returns
-    /// A reference to the adapter's name.
-    fn name(&self) -> &str;
-
-    /// Retrieves the UUID of the adapter.
-    ///
-    /// # Returns
-    /// A reference to the adapter's UUID.
-    fn uuid(&self) -> &Uuid;
-
-    // --- Scanning Operations ---
-
-    /// Starts scanning for Bluetooth peripherals using the adapter.
-    ///
-    /// # Returns
-    /// A `Future` that resolves to `Result<(), String>`, where an error string indicates failure.
-    fn start_scan<'a>(&'a self) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>>;
-
-    /// Stops scanning for Bluetooth peripherals using the adapter.
-    ///
-    /// # Returns
-    /// A `Future` that resolves to `Result<(), btleplug::Error>`, indicating success or failure.
-    fn stop_scan<'a>(&'a self) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>>;
-
-    // --- Peripheral Operations ---
-
-    /// Initiates listening to a specific peripheral.
-    ///
-    /// # Arguments
-    /// * `peripheral` - The Bluetooth address of the target peripheral.
-    /// * `tx` - A sender channel for broadcasting events related to the peripheral.
-    ///
-    /// # Returns
-    /// A `Future` that resolves to `Result<JoinHandle<()>, btleplug::Error>`.
-    /// The `JoinHandle` represents the asynchronous task managing the peripheral connection.
-    #[allow(clippy::type_complexity)]
-    fn listen_to_peripheral<'a>(
-        &'a self,
-        peripheral: BDAddr,
-        tx: Sender<AppEvent>,
-    ) -> Pin<Box<dyn Future<Output = Result<JoinHandle<Result<(), String>>, String>> + Send + 'a>>;
-
-    /// Retrieves the list of peripherals discovered by the adapter.
-    ///
-    /// # Returns
-    /// A `Future` that resolves to `Result<Vec<DeviceDescriptor>, btleplug::Error>`.
-    /// The `DeviceDescriptor` provides details about each discovered peripheral.
-    fn peripherals<'a>(
-        &'a self,
-    ) -> Pin<Box<dyn Future<Output = Result<Vec<DeviceDescriptor>, String>> + Send + 'a>>;
-
-    // --- Adapter Discovery and Information ---
-
-    /// Retrieves a list of available adapters on the system.
-    ///
-    /// # Returns
-    /// A `Future` that resolves to `Result<Vec<Self>, String>`, where the vector contains
-    /// instances of the implementing type representing each discovered adapter.
-    fn retrieve_adapters<'a>(
-    ) -> Pin<Box<dyn Future<Output = Result<Vec<Self>, String>> + Send + 'a>>;
-
-}
-
-/// Represents a Bluetooth adapter.
-///
-/// This structure provides metadata and operations for a Bluetooth adapter,
-/// including its name, UUID, and an interface to the `btleplug` `Central` API.
 #[derive(Clone, Debug)]
-pub struct BluetoothAdapter {
-    /// The name of the adapter.
+pub struct AdapterDescriptor {
     name: String,
-    /// The unique UUID of the adapter.
     uuid: Uuid,
-    /// The `btleplug` adapter instance.
-    adapter: Adapter,
 }
-
-impl PartialEq for BluetoothAdapter {
+impl AdapterDescriptor {
+    pub fn new(name: String) -> Self {
+        Self {
+            name,
+            uuid: Uuid::new_v4(),
+        }
+    }
+    pub fn get_name(&self) -> &str {
+        &self.name
+    }
+    pub fn get_uuid(&self) -> &Uuid {
+        &self.uuid
+    }
+}
+impl PartialEq for AdapterDescriptor {
     fn eq(&self, other: &Self) -> bool {
         self.uuid.eq(&other.uuid)
     }
 }
-
-impl PartialOrd for BluetoothAdapter {
+impl PartialOrd for AdapterDescriptor {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         self.uuid.partial_cmp(&other.uuid)
     }
 }
-
-impl AdapterHandle for BluetoothAdapter {
-    type CentralType = Adapter;
-
-    fn new(adapter: Self::CentralType, name: &str) -> Self {
-        Self {
-            name: name.to_owned(),
-            uuid: Uuid::new_v4(),
-            adapter,
-        }
-    }
-
-    fn name(&self) -> &str {
-        &self.name
-    }
-
-    fn uuid(&self) -> &Uuid {
-        &self.uuid
-    }
-
-    fn retrieve_adapters<'a>(
-    ) -> Pin<Box<dyn Future<Output = Result<Vec<Self>, String>> + Send + 'a>> {
-        Box::pin(async {
-            let manager = Manager::new().await.map_err(|e| e.to_string())?;
-            let adapters = manager.adapters().await.map_err(|e| e.to_string())?;
-            let mut res = Vec::new();
-            for adapter in adapters {
-                let name = adapter.adapter_info().await.unwrap_or("unknown".into());
-                res.push(Self::new(adapter, &name));
-            }
-            Ok(res)
-        })
-    }
-
-
-    fn start_scan<'a>(&'a self) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>> {
-        Box::pin(async { map_err!(self.adapter.start_scan(ScanFilter::default()).await) })
-    }
-
-    fn stop_scan<'a>(&'a self) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>> {
-        Box::pin(async { map_err!(self.adapter.stop_scan().await) })
-    }
-
-    fn peripherals<'a>(
-        &'a self,
-    ) -> Pin<Box<dyn Future<Output = Result<Vec<DeviceDescriptor>, String>> + Send + 'a>> {
-        Box::pin(async {
-            let peris = map_err!(self.adapter.peripherals().await)?;
-            let mut descriptors = Vec::new();
-            for peri in &peris {
-                let address = peri.address();
-                if let Some(props) = map_err!(peri.properties().await)? {
-                    if let Some(name) = props.local_name {
-                        descriptors.push(DeviceDescriptor { name, address });
-                    }
-                }
-            }
-            Ok(descriptors)
-        })
-    }
-
-    fn listen_to_peripheral<'a>(
-        &'a self,
-        peripheral_address: BDAddr,
-        tx: Sender<AppEvent>,
-    ) -> Pin<Box<dyn Future<Output = Result<JoinHandle<Result<(), String>>, String>> + Send + 'a>>
-    {
-        Box::pin(async move {
-            let peripherals = map_err!(self.adapter.peripherals().await)?;
-            let cheststrap = peripherals
-                .into_iter()
-                .find(|p| p.address() == peripheral_address)
-                .ok_or("Peripheral not found")?;
-            map_err!(cheststrap.connect().await)?;
-
-            cheststrap
-                .discover_services()
-                .await
-                .map_err(|e| e.to_string())?;
-
-            if let Some(char) = cheststrap
-                .characteristics()
-                .iter()
-                .find(|c| c.uuid == HEARTRATE_MEASUREMENT_UUID)
-            {
-                cheststrap
-                    .subscribe(char)
-                    .await
-                    .map_err(|e| e.to_string())?;
-            } else {
-                return Err(format!(
-                    "Peripheral has no Heartrate characteristic! {}",
-                    map_err!(cheststrap.properties().await)?
-                        .unwrap_or_default()
-                        .local_name
-                        .unwrap_or("Unknown".to_owned())
-                ));
-            }
-
-            let mut notification_stream = cheststrap
-                .notifications()
-                .await
-                .map_err(|e| e.to_string())?;
-            let fut = tokio::spawn(async move {
-                while let Some(data) = notification_stream.next().await {
-                    if data.value.len() < 2
-                        || tx
-                            .send(AppEvent::Data(HrvEvent::HrMessage(HeartrateMessage::new(
-                                &data.value,
-                            ))))
-                            .is_err()
-                    {
-                        break;
-                    }
-                }
-                Err("listener terminated".into())
-            });
-            Ok(fut)
-        })
-    }
-}
-
 /// API for managing Bluetooth-related data.
 ///
 /// This trait abstracts the management of Bluetooth adapters, discovered devices,
 /// and scanning status.
-pub trait BluetoothModelApi<AHT: AdapterHandle>: Debug + Send {
+pub trait BluetoothModelApi: Debug + Send + Sync {
     /// Gets the list of Bluetooth adapters as a vector of `(Name, UUID)` tuples.
     ///
     /// # Returns
     /// A vector of tuples containing adapter names and UUIDs.
-    fn get_adapter_names(&self) -> Vec<(String, Uuid)>;
+    fn get_adapters(&self) -> &[AdapterDescriptor];
 
     /// Sets the list of Bluetooth adapters.
     ///
     /// # Arguments
     /// * `adapters` - A vector of adapters.
-    fn set_adapters(&mut self, adapters: Vec<AHT>);
+    fn set_adapters(&mut self, adapters: Vec<AdapterDescriptor>);
 
     /// Gets the currently selected adapter, if any.
     ///
     /// # Returns
     /// An optional reference to the selected adapter.
-    fn get_selected_adapter(&self) -> &Option<AHT>;
+    fn get_selected_adapter(&self) -> &Option<AdapterDescriptor>;
 
     /// Selects a Bluetooth adapter by its UUID.
     ///
@@ -463,7 +248,7 @@ pub trait BluetoothModelApi<AHT: AdapterHandle>: Debug + Send {
     ///
     /// # Returns
     /// A reference to the vector of devices.
-    fn get_devices(&self) -> &Vec<(BDAddr, String)>;
+    fn get_devices(&self) -> &Vec<DeviceDescriptor>;
 
     /// Clears the list of discovered devices.
     #[allow(dead_code)]
@@ -473,7 +258,10 @@ pub trait BluetoothModelApi<AHT: AdapterHandle>: Debug + Send {
     ///
     /// # Arguments
     /// * `devices` - A vector of `(BDAddr, String)` tuples representing the devices.
-    fn set_devices(&mut self, devices: Vec<(BDAddr, String)>);
+    fn set_devices(&mut self, devices: Vec<DeviceDescriptor>);
+
+    fn select_device(&mut self, device: DeviceDescriptor);
+    fn get_selected_device(&self)->&Option<DeviceDescriptor>;
 
     /// Gets the scanning status.
     ///
@@ -487,56 +275,48 @@ pub trait BluetoothModelApi<AHT: AdapterHandle>: Debug + Send {
     /// * `status` - `true` if scanning is active, `false` otherwise.
     #[allow(dead_code)]
     fn set_scanning(&mut self, status: bool);
-
+    #[allow(dead_code)]
     fn is_listening_to(&self) -> &Option<BDAddr>;
     fn set_listening(&mut self, device: Option<BDAddr>);
 }
 
 /// Default implementation of the `BTModelApi` trait for managing Bluetooth data.
-#[derive(Debug)]
-pub struct BluetoothModel<AdapterHandleType: AdapterHandle + Send> {
-    adapters: Vec<AdapterHandleType>,
-    selected_adapter: Option<AdapterHandleType>,
-    devices: Vec<(BDAddr, String)>,
+#[derive(Debug, Default)]
+pub struct BluetoothModel {
+    adapters: Vec<AdapterDescriptor>,
+    selected_adapter: Option<AdapterDescriptor>,
+    selected_device: Option<DeviceDescriptor>,
+    devices: Vec<DeviceDescriptor>,
     scanning: bool,
     listening: Option<BDAddr>,
 }
-impl<AdapterHandleType: AdapterHandle> Default for BluetoothModel<AdapterHandleType> {
-    fn default() -> Self {
-        Self {
-            adapters: Vec::<AdapterHandleType>::new(),
-            selected_adapter: None,
-            devices: Vec::new(),
-            scanning: false,
-            listening: None,
-        }
-    }
-}
 
-impl<AdapterHandleType: AdapterHandle + Debug + Send> BluetoothModelApi<AdapterHandleType>
-    for BluetoothModel<AdapterHandleType>
-{
-    fn get_adapter_names(&self) -> Vec<(String, Uuid)> {
-        self.adapters
-            .iter()
-            .map(|entry| (entry.name().to_owned(), *entry.uuid()))
-            .collect()
+impl BluetoothModelApi for BluetoothModel {
+
+    fn select_device(&mut self, device: DeviceDescriptor) {
+        self.selected_device = Some(device)
+    }
+    fn get_selected_device(&self)->&Option<DeviceDescriptor> {
+        &self.selected_device
+    }
+    fn get_adapters(&self) -> &[AdapterDescriptor] {
+        &self.adapters
     }
 
-    fn set_adapters(&mut self, adapters: Vec<AdapterHandleType>) {
+    fn set_adapters(&mut self, adapters: Vec<AdapterDescriptor>) {
         let mut sorted_adapters = adapters;
-        sorted_adapters.sort_by(|a, b| a.uuid().cmp(b.uuid()));
+        sorted_adapters.sort_by(|a, b| a.get_uuid().cmp(b.get_uuid()));
         self.adapters = sorted_adapters;
     }
 
-    fn get_selected_adapter(&self) -> &Option<AdapterHandleType> {
+    fn get_selected_adapter(&self) -> &Option<AdapterDescriptor> {
         &self.selected_adapter
     }
 
     fn select_adapter(&mut self, uuid: &Uuid) -> Result<(), String> {
         if let Ok(idx) = self
             .adapters
-            .binary_search_by(|adapter| adapter.uuid().cmp(uuid))
+            .binary_search_by(|adapter| adapter.get_uuid().cmp(uuid))
         {
             self.selected_adapter = Some(self.adapters[idx].clone());
             Ok(())
@@ -545,7 +325,7 @@ impl<AdapterHandleType: AdapterHandle + Debug + Send> BluetoothModelApi<AdapterH
         }
     }
 
-    fn get_devices(&self) -> &Vec<(BDAddr, String)> {
+    fn get_devices(&self) -> &Vec<DeviceDescriptor> {
         &self.devices
     }
 
@@ -553,7 +333,7 @@ impl<AdapterHandleType: AdapterHandle + Debug + Send> BluetoothModelApi<AdapterH
         self.devices.clear();
     }
 
-    fn set_devices(&mut self, devices: Vec<(BDAddr, String)>) {
+    fn set_devices(&mut self, devices: Vec<DeviceDescriptor>) {
         self.devices = devices;
     }
 
