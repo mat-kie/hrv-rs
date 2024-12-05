@@ -95,7 +95,6 @@ pub fn calc_poincare_metrics(data: &[f64]) -> PoincareAnalysisResult {
         centered
     };
 
-
     // Covariance matrix and eigen decomposition
     let poincare_cov =
         poincare_matrix.transpose() * &poincare_matrix / (poincare_matrix.nrows() as f64 - 1.0);

@@ -77,7 +77,7 @@ impl<AMT: AcquisitionModelApi + Default> AcquisitionController<AMT> {
         loop {
             match channel.recv().await {
                 Ok(AppEvent::Bluetooth(BluetoothEvent::HrMessage(msg))) => {
-                    if let Err(e) = acq.write().await.add_measurement(&msg){
+                    if let Err(e) = acq.write().await.add_measurement(&msg) {
                         error!("failed to add measurement: {}", e);
                     }
                 }

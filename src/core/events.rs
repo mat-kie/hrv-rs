@@ -57,7 +57,7 @@ pub enum UiInputEvent {
     PrepareAcquisition,
     LoadModel(PathBuf),
     StoreModel(PathBuf),
-    NewModel
+    NewModel,
 }
 
 /// Enumeration of all application-level events.

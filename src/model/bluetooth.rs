@@ -3,12 +3,12 @@
 //! This module defines the model and utility structures for managing Bluetooth-related data in the HRV analysis tool.
 //! It provides abstractions for interacting with Bluetooth adapters, devices, and Heart Rate Service (HRS) messages.
 
+use anyhow::{anyhow, Result};
 use btleplug::api::BDAddr;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fmt::Debug;
 use uuid::Uuid;
-use anyhow::{anyhow, Result};
 
 /// Helper macro to check if a specific bit is set in a byte.
 macro_rules! is_bit_set {
@@ -262,7 +262,7 @@ pub trait BluetoothModelApi: Debug + Send + Sync {
     fn set_devices(&mut self, devices: Vec<DeviceDescriptor>);
 
     fn select_device(&mut self, device: DeviceDescriptor);
-    fn get_selected_device(&self)->&Option<DeviceDescriptor>;
+    fn get_selected_device(&self) -> &Option<DeviceDescriptor>;
 
     /// Gets the scanning status.
     ///
@@ -293,11 +293,10 @@ pub struct BluetoothModel {
 }
 
 impl BluetoothModelApi for BluetoothModel {
-
     fn select_device(&mut self, device: DeviceDescriptor) {
         self.selected_device = Some(device)
     }
-    fn get_selected_device(&self)->&Option<DeviceDescriptor> {
+    fn get_selected_device(&self) -> &Option<DeviceDescriptor> {
         &self.selected_device
     }
     fn get_adapters(&self) -> &[AdapterDescriptor] {
