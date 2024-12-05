@@ -12,18 +12,18 @@ use mockall::automock;
 use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize, Serializer};
 use tokio::sync::{RwLock, RwLockReadGuard};
 
-use super::acquisition::AcquisitionModel;
 use super::acquisition::AcquisitionModelApi;
+use super::acquisition::MockAcquisitionModelApi;
 
 /// Trait defining the interface for storage models.
 ///
 /// This trait allows for managing a collection of acquisition models,
 /// providing methods to access, store, and delete acquisitions.
-#[automock(type AcqModelType = AcquisitionModel;)]
+#[automock(type AcqModelType = MockAcquisitionModelApi;)]
 pub trait StorageModelApi: Sync + Send {
     /// The type of acquisition model being stored, which must implement `AcquisitionModelApi`,
     /// `Serialize`, and `DeserializeOwned`.
-    type AcqModelType: AcquisitionModelApi + Serialize + DeserializeOwned;
+    type AcqModelType: AcquisitionModelApi;
 
     /// Returns a slice of handles to the stored acquisition models.
     fn get_acquisitions(&self) -> &[ModelHandle<dyn AcquisitionModelApi>];

@@ -7,6 +7,7 @@ use super::bluetooth::HeartrateMessage;
 use crate::model::hrv::{HrvSessionData, HrvStatistics};
 use anyhow::Result;
 use log::trace;
+use mockall::automock;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::fmt::Debug;
 use time::{Duration, OffsetDateTime};
@@ -15,6 +16,7 @@ use time::{Duration, OffsetDateTime};
 ///
 /// Defines the interface for managing acquisition-related data, including runtime measurements,
 /// HRV statistics, and stored acquisitions.
+#[automock]
 pub trait AcquisitionModelApi: Debug + Send + Sync {
     /// Retrieves the start time of the current acquisition.
     ///

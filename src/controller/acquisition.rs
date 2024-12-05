@@ -15,7 +15,6 @@ use crate::{
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use log::error;
-use serde::{de::DeserializeOwned, Serialize};
 use time::Duration;
 use tokio::{
     sync::{
@@ -55,7 +54,7 @@ pub trait DataAcquisitionApi {
 /// * `AMT` - A type that implements the `AcquisitionModelApi` trait, representing the underlying data model.
 pub struct AcquisitionController<AMT, SMT>
 where
-    AMT: AcquisitionModelApi + Default + Serialize + DeserializeOwned + 'static,
+    AMT: AcquisitionModelApi + Default + 'static,
     SMT: StorageModelApi<AcqModelType = AMT> + Send + Sync,
 {
     /// A thread-safe, shared reference to the acquisition model.
@@ -70,7 +69,7 @@ where
 
 impl<AMT, SMT> AcquisitionController<AMT, SMT>
 where
-    AMT: AcquisitionModelApi + Default + Serialize + DeserializeOwned + 'static,
+    AMT: AcquisitionModelApi + Default + 'static,
     SMT: StorageModelApi<AcqModelType = AMT> + Send + Sync,
 {
     /// Creates a new `AcquisitionController` instance.
@@ -126,7 +125,7 @@ where
 #[async_trait]
 impl<AMT, SMT> DataAcquisitionApi for AcquisitionController<AMT, SMT>
 where
-    AMT: AcquisitionModelApi + Default + Serialize + DeserializeOwned + 'static,
+    AMT: AcquisitionModelApi + Default + 'static,
     SMT: StorageModelApi<AcqModelType = AMT> + Send + Sync + 'static,
 {
     async fn set_active_acq(&mut self, idx: usize) -> Result<()> {
@@ -195,9 +194,12 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{acquisition::AcquisitionModel, storage::MockStorageModelApi};
+    use crate::model::{
+        acquisition::MockAcquisitionModelApi,
+        storage::MockStorageModelApi,
+    };
+    
     use tokio::sync::broadcast;
-
     #[tokio::test]
     async fn test_start_acquisition() {
         let (tx, _rx) = broadcast::channel(16);
@@ -274,7 +276,7 @@ mod tests {
     #[tokio::test]
     async fn test_set_active_acq_nonzero() {
         let (tx, _rx) = broadcast::channel(16);
-        let vec = vec![Arc::new(RwLock::new(AcquisitionModel::default()))];
+        let vec = vec![Arc::new(RwLock::new(MockAcquisitionModelApi::default()))];
         let model = Arc::new(RwLock::new(MockStorageModelApi::default()));
         model
             .write()
@@ -298,6 +300,19 @@ mod tests {
 
         controller.start_acquisition().unwrap();
         let window = Duration::seconds(60);
+
+        controller
+            .get_active_acq()
+            .unwrap()
+            .write()
+            .await
+            .expect_set_stats_window()
+            .once()
+            .returning(|x| {
+                assert_eq!(x, &Duration::seconds(60));
+                Ok(())
+            });
+
         let result = controller.set_stats_window(&window).await;
         assert!(result.is_ok());
     }
@@ -309,6 +324,19 @@ mod tests {
         let mut controller = AcquisitionController::new(model, tx);
 
         controller.start_acquisition().unwrap();
+
+        controller
+            .get_active_acq()
+            .unwrap()
+            .write()
+            .await
+            .expect_set_outlier_filter_value()
+            .once()
+            .returning(|x| {
+                assert_eq!(x, 1.5);
+                Ok(())
+            });
+
         let result = controller.set_outlier_filter_value(1.5).await;
         assert!(result.is_ok());
     }
