@@ -8,18 +8,21 @@
 
 use std::sync::Arc;
 
-use mockall::automock;
 use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize, Serializer};
 use tokio::sync::{RwLock, RwLockReadGuard};
 
 use super::acquisition::AcquisitionModelApi;
+
+#[cfg(test)]
 use super::acquisition::MockAcquisitionModelApi;
 
+#[cfg(test)]
+use mockall::automock;
 /// Trait defining the interface for storage models.
 ///
 /// This trait allows for managing a collection of acquisition models,
 /// providing methods to access, store, and delete acquisitions.
-#[automock(type AcqModelType = MockAcquisitionModelApi;)]
+#[cfg_attr(test, automock(type AcqModelType = MockAcquisitionModelApi;))]
 pub trait StorageModelApi: Sync + Send {
     /// The type of acquisition model being stored, which must implement `AcquisitionModelApi`,
     /// `Serialize`, and `DeserializeOwned`.
@@ -174,5 +177,77 @@ impl<T: ?Sized> ModelHandle<T> {
     /// An `RwLockReadGuard` that allows read access to the data.
     pub fn blocking_read(&self) -> RwLockReadGuard<'_, T> {
         self.data.blocking_read()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::acquisition::MockAcquisitionModelApi as MockAcquisitionModel;
+    impl Serialize for MockAcquisitionModel {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            let s = serde_json::to_string(self).unwrap();
+            serializer.serialize_str(&s)
+        }
+    }
+
+    impl<'a> Deserialize<'a> for MockAcquisitionModel {
+        fn deserialize<D>(_deserializer: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'a>,
+        {
+            Ok(MockAcquisitionModel::default())
+        }
+    }
+
+    #[tokio::test]
+    async fn test_store_acquisition() {
+        let mut storage = StorageModel::<MockAcquisitionModel>::default();
+        let acq = Arc::new(RwLock::new(MockAcquisitionModel::default()));
+
+        storage.store_acquisition(acq.clone());
+
+        assert_eq!(storage.acquisitions.len(), 1);
+        assert_eq!(storage.handles.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_delete_acquisition() {
+        let mut storage = StorageModel::<MockAcquisitionModel>::default();
+        let acq1 = Arc::new(RwLock::new(MockAcquisitionModel::default()));
+        let acq2 = Arc::new(RwLock::new(MockAcquisitionModel::default()));
+
+        storage.store_acquisition(acq1.clone());
+        storage.store_acquisition(acq2.clone());
+
+        storage.delete_acquisition(0);
+
+        assert_eq!(storage.acquisitions.len(), 1);
+        assert_eq!(storage.handles.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_get_acquisitions() {
+        let mut storage = StorageModel::<MockAcquisitionModel>::default();
+        let acq = Arc::new(RwLock::new(MockAcquisitionModel::default()));
+
+        storage.store_acquisition(acq.clone());
+
+        let acquisitions = storage.get_acquisitions();
+        assert_eq!(acquisitions.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_get_mut_acquisitions() {
+        let mut storage = StorageModel::<MockAcquisitionModel>::default();
+        let acq = Arc::new(RwLock::new(MockAcquisitionModel::default()));
+
+        storage.store_acquisition(acq.clone());
+
+        let acquisitions = storage.get_mut_acquisitions();
+        assert_eq!(acquisitions.len(), 1);
     }
 }

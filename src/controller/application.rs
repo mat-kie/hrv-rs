@@ -197,7 +197,7 @@ impl<ACT: DataAcquisitionApi + Send + 'static, BTCT: BluetoothApi + 'static>
                     }
                 }
             }
+            gui_ctx.request_repaint();
         }
-        gui_ctx.request_repaint();
     }
 }

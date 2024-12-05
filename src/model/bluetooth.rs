@@ -379,7 +379,7 @@ mod tests {
 
     #[test]
     fn test_hr_service_msg_short_hr_no_exp() {
-        // Short HR, no energy expenditure, no sensor contact, RR intervals (1024 and 256)
+        // Short HR, no energy expenditure, no sensor contact, RR intervals (1000 and 250)
         let data = [0b00010000, 80, 0, 4, 0, 1];
         let msg = HeartrateMessage::new(&data);
         assert_eq!(msg.get_hr(), 80.0);
@@ -389,7 +389,7 @@ mod tests {
 
     #[test]
     fn test_hr_service_msg_long_hr_no_exp() {
-        // Long HR, no energy expenditure, no sensor contact, RR intervals (1024 and 256)
+        // Long HR, no energy expenditure, no sensor contact, RR intervals (1000 and 250)
         let data = [0b00010001, 80, 0, 0, 4, 0, 1];
         let msg = HeartrateMessage::new(&data);
 
@@ -405,7 +405,7 @@ mod tests {
 
     #[test]
     fn test_hr_service_msg_with_energy_exp() {
-        // Short HR, energy expenditure, no sensor contact, RR intervals (1024 and 256)
+        // Short HR, energy expenditure, no sensor contact, RR intervals (1000 and 250)
         let data = [0b00011001, 80, 0, 1, 2, 0, 4, 0, 1];
         let msg = HeartrateMessage::new(&data);
 
@@ -434,5 +434,109 @@ mod tests {
         let msg = HeartrateMessage::new(&data);
         let output = format!("{}", msg);
         assert!(output.contains("Heart Rate Value: 80.00"));
+    }
+
+    #[test]
+    fn test_hr_service_msg_no_rr_intervals() {
+        // Short HR, no energy expenditure, no sensor contact, no RR intervals
+        let data = [0b00000000, 75];
+        let msg = HeartrateMessage::new(&data);
+        assert_eq!(msg.get_hr(), 75.0);
+        assert!(!msg.has_rr_interval());
+        assert_eq!(msg.get_rr_intervals(), &[] as &[u16]);
+    }
+
+    #[test]
+    fn test_hr_service_msg_with_sensor_contact() {
+        // Short HR, no energy expenditure, sensor contact, no RR intervals
+        let data = [0b00000110, 72];
+        let msg = HeartrateMessage::new(&data);
+        assert_eq!(msg.get_hr(), 72.0);
+        assert!(msg.sen_has_contact());
+        assert!(msg.sen_contact_supported());
+    }
+
+    #[test]
+    fn test_hr_service_msg_with_long_hr_and_energy_exp() {
+        // Long HR, energy expenditure, no sensor contact, no RR intervals
+        let data = [0b00001001, 90, 1, 10, 0];
+        let msg = HeartrateMessage::new(&data);
+        assert_eq!(msg.get_hr(), 346.0); // 90 + (1 << 8)
+        assert!(msg.has_energy_exp());
+        assert_eq!(msg.get_energy_exp(), 10.0);
+    }
+
+    #[test]
+    fn test_hr_service_msg_with_all_flags() {
+        // Long HR, energy expenditure, sensor contact, RR intervals
+        let data = [0b00011111, 100, 0, 5, 0, 0, 4, 0, 1];
+        let msg = HeartrateMessage::new(&data);
+        assert_eq!(msg.get_hr(), 100.0);
+        assert!(msg.has_energy_exp());
+        assert_eq!(msg.get_energy_exp(), 5.0);
+        assert!(msg.has_rr_interval());
+        assert_eq!(msg.get_rr_intervals(), &[1000, 250]);
+        assert!(msg.sen_has_contact());
+        assert!(msg.sen_contact_supported());
+    }
+    #[test]
+    fn test_bluetooth_model_adapters() {
+        let mut model = BluetoothModel::default();
+        let adapter1 = AdapterDescriptor::new("Adapter 1".to_string());
+        let adapter2 = AdapterDescriptor::new("Adapter 2".to_string());
+        let mut adapters = vec![adapter1.clone(), adapter2.clone()];
+        model.set_adapters(adapters.clone());
+        adapters.sort_by(|a, b| a.get_uuid().cmp(b.get_uuid()));
+        assert_eq!(model.get_adapters(), &adapters);
+        assert!(model.get_selected_adapter().is_none());
+
+        let uuid = *adapter1.get_uuid();
+        model.select_adapter(&uuid).unwrap();
+        assert_eq!(model.get_selected_adapter(), &Some(adapter1));
+    }
+
+    #[test]
+    fn test_bluetooth_model_devices() {
+        let mut model = BluetoothModel::default();
+        let device1 = DeviceDescriptor {
+            name: "Device 1".to_string(),
+            address: BDAddr::from_str_delim("11:22:33:44:55:66").unwrap(),
+        };
+        let device2 = DeviceDescriptor {
+            name: "Device 2".to_string(),
+            address: BDAddr::from_str_delim("11:22:33:44:55:67").unwrap(),
+        };
+        model.set_devices(vec![device1.clone(), device2.clone()]);
+
+        assert_eq!(model.get_devices(), &[device1.clone(), device2.clone()]);
+        assert!(model.get_selected_device().is_none());
+
+        model.select_device(device1.clone());
+        assert_eq!(model.get_selected_device(), &Some(device1));
+    }
+
+    #[test]
+    fn test_bluetooth_model_scanning() {
+        let mut model = BluetoothModel::default();
+        assert!(!model.is_scanning());
+
+        model.set_scanning(true);
+        assert!(model.is_scanning());
+
+        model.set_scanning(false);
+        assert!(!model.is_scanning());
+    }
+
+    #[test]
+    fn test_bluetooth_model_listening() {
+        let mut model = BluetoothModel::default();
+        assert!(model.is_listening_to().is_none());
+
+        let address = BDAddr::from_str_delim("11:22:33:44:55:66").unwrap();
+        model.set_listening(Some(address));
+        assert_eq!(model.is_listening_to(), &Some(address));
+
+        model.set_listening(None);
+        assert!(model.is_listening_to().is_none());
     }
 }
