@@ -23,7 +23,8 @@ jobs:
           profile: minimal
           toolchain: stable
           override: true
-
+      - name: Install Dependencies
+        run: sudo apt install libdbus-1-dev pkg-config
       - name: Run cargo check
         uses: actions-rs/cargo@v1
         with:
@@ -78,7 +79,7 @@ jobs:
           command: clippy
           args: -- -D warnings
   coverage:
-    name: Rust project
+    name: coverage tests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
