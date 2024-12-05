@@ -39,9 +39,6 @@ jobs:
       - name: Install Dependencies
         run: sudo apt install libdbus-1-dev pkg-config && rustup component add clippy rustfmt
 
-      - name: Install cargo-tarpaulin
-        run: cargo install cargo-tarpaulin
-
       - name: Run Clippy (Linting)
         run: cargo clippy --all-targets --all-features -- -D warnings
 
