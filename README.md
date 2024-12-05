@@ -1,4 +1,3 @@
-
 # Hrv-rs
 [![Pipeline Status](https://github.com/mat-kie/hrv-rs/actions/workflows/rust.yml/badge.svg)](https://github.com/mat-kie/hrv-rs/actions/workflows/rust.yml)
 [![Coverage](https://codecov.io/gh/mat-kie/hrv-rs/branch/main/graph/badge.svg?token=YOUR_CODECOV_TOKEN)](https://codecov.io/gh/mat-kie/hrv-rs)
@@ -54,22 +53,27 @@ The project uses a modular, event-driven MVC architecture.
 ### Modules
 
 #### 1. **Core**
+- **Constants**: Application-wide constants.
 - **Events**: Defines application events, including user interactions and system updates.
-- **Macros**: Provides utility macros to simplify error handling and data extraction.
+- **View Trait**: Trait definitions for views.
 
 #### 2. **Controller**
 - **Acquisition**: Handles data acquisition from BLE devices.
-- **Bluetooth**: Manages Bluetooth adapters, device discovery, and communication.
 - **Application**: Orchestrates application logic, including transitions between views.
+- **Bluetooth**: Manages Bluetooth adapters, device discovery, and communication.
 
 #### 3. **Model**
+- **Acquisition**: Handles runtime and stored data related to HRV measurement sessions.
 - **Bluetooth**: Represents BLE devices, adapters, and connections.
 - **HRV**: Structures and methods for storing, calculating, and retrieving HRV statistics.
-- **Acquisition**: Handles runtime and stored data related to HRV measurement sessions.
+- **Storage**: General data storage and processing.
 
-#### 4. **View**
-- **Bluetooth**: UI for managing Bluetooth connections.
-- **HRV Analysis**: Displays computed HRV statistics and visualizes Poincaré plots.
+#### 4. **Math**
+- **HRV**: Functions and structures for HRV computation.
+
+#### 5. **View**
+- **Acquisition**: UI for managing Bluetooth connections and data acquisition.
+- **Overview**: Displays computed HRV statistics and visualizes Poincaré plots.
 - **Manager**: Coordinates transitions between views and manages their lifecycle.
 
 ## License

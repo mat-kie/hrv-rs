@@ -1,7 +1,7 @@
-//! Bluetooth View
+//! Storage View
 //!
-//! This module provides the view layer for managing Bluetooth interactions in the HRV analysis tool.
-//! It includes structures and methods for rendering the Bluetooth device selector and interaction UI.
+//! This module provides the view layer for managing stored acquisitions in the HRV analysis tool.
+//! It includes structures and methods for rendering the UI for selecting and interacting with stored acquisitions.
 
 use crate::{
     core::{events::UiInputEvent, view_trait::ViewApi},
@@ -16,16 +16,24 @@ use super::acquisition::{
     render_filter_params, render_poincare_plot, render_stats, render_time_series,
 };
 
-/// The `BluetoothView` renders a UI for selecting Bluetooth adapters and devices.
+/// The `StorageView` renders a UI for managing stored acquisitions.
 ///
-/// Represents the view for managing Bluetooth interactions, such as device selection and connection.
+/// Represents the view for managing stored acquisitions, such as selecting, viewing, and interacting with them.
 pub struct StorageView<SM: StorageModelApi + Send> {
-    /// The shared Bluetooth model that provides adapter and device information.
+    /// The shared storage model that provides acquisition information.
     model: ModelHandle<SM>,
+    /// The currently selected acquisition.
     selected: Option<ModelHandle<dyn AcquisitionModelApi>>,
 }
 
 impl<SM: StorageModelApi + Send> StorageView<SM> {
+    /// Creates a new `StorageView`.
+    ///
+    /// # Arguments
+    /// * `model` - The storage model handle.
+    ///
+    /// # Returns
+    /// A new instance of `StorageView`.
     pub fn new(model: ModelHandle<SM>) -> Self {
         Self {
             model,
@@ -33,12 +41,22 @@ impl<SM: StorageModelApi + Send> StorageView<SM> {
         }
     }
 }
+
 impl<SM: StorageModelApi + Send> ViewApi for StorageView<SM> {
+    /// Renders the current view.
+    ///
+    /// # Arguments
+    /// * `publish` - Function to publish `UiInputEvent`s.
+    /// * `ctx` - Egui context for rendering.
+    ///
+    /// # Returns
+    /// `Result<(), String>` indicating success or an error message.
     fn render<F: Fn(UiInputEvent) + ?Sized>(
         &mut self,
         publish: &F,
         ctx: &egui::Context,
     ) -> Result<(), String> {
+        // Render the top menu bar
         egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
                 // "File" Menu
@@ -63,6 +81,7 @@ impl<SM: StorageModelApi + Send> ViewApi for StorageView<SM> {
             });
         });
 
+        // Render the left side panel with past measurements
         let fd = format_description!("[year]-[month]-[day] [hour]:[minute]");
         egui::SidePanel::left("left_overview").show(ctx, |ui| {
             let model = self.model.blocking_read();
@@ -87,6 +106,7 @@ impl<SM: StorageModelApi + Send> ViewApi for StorageView<SM> {
             }
         });
 
+        // Render the right side panel with selected acquisition details
         if let Some(selected) = &self.selected {
             egui::SidePanel::right("right:overview").show(ctx, |ui| {
                 let model = &*selected.blocking_read();
@@ -100,6 +120,7 @@ impl<SM: StorageModelApi + Send> ViewApi for StorageView<SM> {
                 render_filter_params(ui, &publish, model);
             });
 
+            // Render the bottom panel with time series data
             egui::TopBottomPanel::bottom("time series panel")
                 .min_height(100.0)
                 .resizable(true)
@@ -107,6 +128,8 @@ impl<SM: StorageModelApi + Send> ViewApi for StorageView<SM> {
                     let model = &*selected.blocking_read();
                     render_time_series(ui, model);
                 });
+
+            // Render the central panel with Poincaré plot
             egui::CentralPanel::default().show(ctx, |ui| {
                 let model = &*selected.blocking_read();
                 render_poincare_plot(ui, model);

@@ -2,7 +2,8 @@
 //!
 //! This tool processes data from Bluetooth Low Energy (BLE) chest straps to
 //! analyze Heart Rate Variability (HRV). It integrates various modules for
-//! data acquisition, BLE communication, and HRV computation.
+//! data acquisition, BLE communication, and HRV computation. The tool is
+//! structured using a modular, event-driven MVC architecture.
 
 use controller::{
     acquisition::AcquisitionController, application::AppController, bluetooth::BluetoothController,
@@ -21,8 +22,6 @@ mod core {
     pub mod constants;
     /// Event system for inter-module communication.
     pub mod events;
-    /// Custom macros for code simplification.
-    pub mod macros;
     /// Trait definitions for views.
     pub mod view_trait;
 }
@@ -51,24 +50,30 @@ mod model {
     pub mod bluetooth;
     /// Model for HRV-related data storage and processing.
     pub mod hrv;
+    /// Model for general data storage.
     pub mod storage;
 }
 
 /// UI-related components for the application.
 mod view {
     /// Bluetooth device management UI.
-    /// HRV analysis user interface.
     pub mod acquisition;
-
-    pub mod overview;
-
+    /// Manages transitions between views.
     pub mod manager;
+    /// HRV analysis user interface.
+    pub mod overview;
 }
 
 /// Main entry point of the application.
 ///
-/// Initializes logging, sets up asynchronous runtime, and starts the
-/// application with the eframe framework.
+/// This function performs the following tasks:
+/// 1. Initializes the logger for debugging and informational output.
+/// 2. Sets up a Tokio runtime for handling asynchronous operations.
+/// 3. Creates a broadcast channel for event-driven communication between modules.
+/// 4. Initializes shared state models for Bluetooth and data storage.
+/// 5. Starts the eframe application with the main view manager.
+///
+/// The application is structured using a modular, event-driven MVC architecture.
 fn main() {
     // Initialize logger
     env_logger::init();
@@ -77,14 +82,13 @@ fn main() {
     let rt = Runtime::new().expect("Unable to create Runtime");
     let _enter = rt.enter();
 
+    // Create a broadcast channel for event-driven communication.
     let (event_bus, _) = broadcast::channel(16);
 
     // Shared state for Bluetooth model.
     let bluetooth_model = Arc::new(RwLock::new(BluetoothModel::default()));
+    // Shared state for data storage model.
     let storage = Arc::new(RwLock::new(StorageModel::<AcquisitionModel>::default()));
-    // Shared state for acquisition model.
-
-    // Initialize application controller with models and controllers.
 
     // Start the eframe application with the main view manager.
     eframe::run_native(

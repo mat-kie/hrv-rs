@@ -7,26 +7,27 @@ use super::bluetooth::HeartrateMessage;
 use crate::model::hrv::{HrvSessionData, HrvStatistics};
 use anyhow::Result;
 use log::trace;
+use mockall::automock;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::fmt::Debug;
 use time::{Duration, OffsetDateTime};
+
 /// `AcquisitionModelApi` trait.
 ///
 /// Defines the interface for managing acquisition-related data, including runtime measurements,
 /// HRV statistics, and stored acquisitions.
+#[automock]
 pub trait AcquisitionModelApi: Debug + Send + Sync {
     /// Retrieves the start time of the current acquisition.
     ///
     /// # Returns
-    /// An optional `OffsetDateTime` indicating the start time, if available.
-    #[allow(dead_code)]
+    /// An `OffsetDateTime` indicating the start time.
     fn get_start_time(&self) -> OffsetDateTime;
 
     /// Retrieves the last heart rate message received.
     ///
     /// # Returns
     /// An optional `HeartrateMessage` representing the most recent measurement.
-    #[allow(dead_code)]
     fn get_last_msg(&self) -> Option<HeartrateMessage>;
 
     /// Retrieves the current HRV statistics.
@@ -41,13 +42,19 @@ pub trait AcquisitionModelApi: Debug + Send + Sync {
     /// A reference to an optional `Duration` representing the analysis window size.
     fn get_stats_window(&self) -> &Option<Duration>;
 
-    /// Getter for the filter parameter value (fraction of std. dev)
+    /// Getter for the filter parameter value (fraction of std. dev).
     ///
     /// # Returns
-    /// The parameter value for the outlier filter
+    /// The parameter value for the outlier filter.
     fn get_outlier_filter_value(&self) -> f64;
 
-    /// Setter for the filter parameter value (fraction of std. dev)
+    /// Setter for the filter parameter value (fraction of std. dev).
+    ///
+    /// # Arguments
+    /// - `value`: The new filter value.
+    ///
+    /// # Returns
+    /// A result indicating success or failure.
     fn set_outlier_filter_value(&mut self, value: f64) -> Result<()>;
 
     /// Retrieves the points for the Poincare plot.
@@ -60,19 +67,37 @@ pub trait AcquisitionModelApi: Debug + Send + Sync {
     ///
     /// # Arguments
     /// - `msg`: The `HeartrateMessage` containing the measurement data.
+    ///
+    /// # Returns
+    /// A result indicating success or failure.
     fn add_measurement(&mut self, msg: &HeartrateMessage) -> Result<()>;
 
     /// Sets the statistics analysis window.
     ///
     /// # Arguments
     /// - `window`: A `Duration` representing the new analysis window size.
+    ///
+    /// # Returns
+    /// A result indicating success or failure.
     fn set_stats_window(&mut self, window: &Duration) -> Result<()>;
 
+    /// Retrieves the session data.
+    ///
+    /// # Returns
+    /// A reference to the `HrvSessionData`.
     fn get_session_data(&self) -> &HrvSessionData;
 
+    /// Retrieves all heart rate messages with their elapsed time.
+    ///
+    /// # Returns
+    /// A reference to a slice of tuples containing `Duration` and `HeartrateMessage`.
     #[allow(dead_code)]
     fn get_messages(&self) -> &[(Duration, HeartrateMessage)];
 
+    /// Retrieves the elapsed time since the start of the acquisition.
+    ///
+    /// # Returns
+    /// A `Duration` representing the elapsed time.
     fn get_elapsed_time(&self) -> Duration;
 }
 
@@ -139,6 +164,9 @@ impl<'de> Deserialize<'de> for AcquisitionModel {
 
 impl AcquisitionModel {
     /// Updates the session data based on the current measurements.
+    ///
+    /// # Returns
+    /// A result indicating success or failure.
     fn update(&mut self) -> Result<()> {
         self.sessiondata =
             HrvSessionData::from_acquisition(&self.measurements, self.window, self.outlier_filter)?;
@@ -159,6 +187,7 @@ impl AcquisitionModelApi for AcquisitionModel {
     fn get_messages(&self) -> &[(Duration, HeartrateMessage)] {
         &self.measurements
     }
+
     fn get_session_data(&self) -> &HrvSessionData {
         &self.sessiondata
     }

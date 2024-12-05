@@ -1,7 +1,10 @@
 //! Bluetooth Model
 //!
-//! This module defines the model and utility structures for managing Bluetooth-related data in the HRV analysis tool.
-//! It provides abstractions for interacting with Bluetooth adapters, devices, and Heart Rate Service (HRS) messages.
+//! This module defines the model and utility structures for managing Bluetooth-related data.
+//! It provides abstractions for:
+//! - Bluetooth Low Energy (BLE) Heart Rate Service (HRS) messages
+//! - Device and adapter management
+//! - Scanning and connection state tracking
 
 use anyhow::{anyhow, Result};
 use btleplug::api::BDAddr;
@@ -26,8 +29,11 @@ macro_rules! get_u16_little_endian {
 
 /// Represents a Bluetooth LE Heart Rate Service (HRS) message.
 ///
-/// The HRS message contains heart rate data, energy expenditure, and RR intervals
-/// (time between successive heartbeats).
+/// Parses and stores data from the Heart Rate Service including:
+/// - Heart rate value (8 or 16 bit)
+/// - RR intervals (time between beats)
+/// - Energy expenditure
+/// - Sensor contact status
 #[derive(Copy, Clone, Default, Deserialize, Serialize, Debug, PartialEq)]
 pub struct HeartrateMessage {
     /// Flags indicating the presence of optional data and data encoding.
@@ -172,10 +178,11 @@ impl fmt::Display for HeartrateMessage {
     }
 }
 
-/// Represents a descriptor for a Bluetooth device.
+/// Represents a discovered Bluetooth device.
 ///
-/// This structure stores the basic details of a discovered Bluetooth device,
-/// including its name and address.
+/// Contains:
+/// - Device name (if available)
+/// - Bluetooth address (MAC)
 #[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct DeviceDescriptor {
     /// The name of the device, if available.
@@ -184,6 +191,11 @@ pub struct DeviceDescriptor {
     pub address: BDAddr,
 }
 
+/// Represents a Bluetooth adapter with a unique identifier.
+///
+/// Stores information about a Bluetooth adapter including:
+/// - A human-readable name
+/// - A unique UUID for identification
 #[derive(Clone, Debug)]
 pub struct AdapterDescriptor {
     name: String,
@@ -213,10 +225,13 @@ impl PartialOrd for AdapterDescriptor {
         self.uuid.partial_cmp(&other.uuid)
     }
 }
+
 /// API for managing Bluetooth-related data.
 ///
-/// This trait abstracts the management of Bluetooth adapters, discovered devices,
-/// and scanning status.
+/// This trait provides methods for:
+/// - Managing Bluetooth adapters and their selection
+/// - Tracking discovered devices
+/// - Managing device scanning and connection states
 pub trait BluetoothModelApi: Debug + Send + Sync {
     /// Gets the list of Bluetooth adapters as a vector of `(Name, UUID)` tuples.
     ///
@@ -281,7 +296,13 @@ pub trait BluetoothModelApi: Debug + Send + Sync {
     fn set_listening(&mut self, device: Option<BDAddr>);
 }
 
-/// Default implementation of the `BTModelApi` trait for managing Bluetooth data.
+/// Default implementation of the Bluetooth model.
+///
+/// Manages:
+/// - Available Bluetooth adapters
+/// - Currently selected adapter and device
+/// - List of discovered devices
+/// - Scanning and connection states
 #[derive(Debug, Default)]
 pub struct BluetoothModel {
     adapters: Vec<AdapterDescriptor>,

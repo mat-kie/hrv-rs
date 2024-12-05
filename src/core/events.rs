@@ -2,6 +2,7 @@
 //!
 //! This module defines events used for communication between different components
 //! of the HRV analysis tool. Events are central to the application's event-driven architecture.
+
 use std::path::PathBuf;
 use time::Duration;
 
@@ -34,29 +35,51 @@ pub enum UiInputEvent {
     ///
     /// # Fields
     /// - `Duration`: The new time window duration.
-    #[allow(dead_code)]
     TimeWindowChanged(Duration),
 
     /// The outlier filter value has been updated.
     ///
     /// # Fields
     /// - `f64`: The new filter value.
-    #[allow(dead_code)]
     OutlierFilterChanged(f64),
 
+    /// A stored acquisition has been selected.
+    ///
+    /// # Fields
+    /// - `usize`: The index of the selected acquisition.
     StoredAcqSelected(usize),
 
     /// A request to start data acquisition.
     AcquisitionStartReq,
     /// A request to stop data acquisition.
     AcquisitionStopReq,
+    /// A request to store the current acquisition.
     StoreAcquisition,
+    /// A request to discard the current acquisition.
     DiscardAcquisition,
+    /// Select a Bluetooth adapter.
+    ///
+    /// # Fields
+    /// - `AdapterDescriptor`: The descriptor of the selected adapter.
     SelectAdapter(AdapterDescriptor),
+    /// Select a Bluetooth peripheral.
+    ///
+    /// # Fields
+    /// - `DeviceDescriptor`: The descriptor of the selected peripheral.
     SelectPeripheral(DeviceDescriptor),
+    /// Prepare for a new acquisition.
     PrepareAcquisition,
+    /// Load a model from a file.
+    ///
+    /// # Fields
+    /// - `PathBuf`: The path to the model file.
     LoadModel(PathBuf),
+    /// Store the current model to a file.
+    ///
+    /// # Fields
+    /// - `PathBuf`: The path to the model file.
     StoreModel(PathBuf),
+    /// Create a new model.
     NewModel,
 }
 

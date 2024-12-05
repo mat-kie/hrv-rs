@@ -1,6 +1,6 @@
 //! Core View Trait
 //!
-//! This module defines the `ViewTrait`, which is implemented by all views in the HRV analysis tool.
+//! This module defines the `ViewApi` trait, which is implemented by all views in the HRV analysis tool.
 //! It provides a standardized interface for rendering and updating views.
 
 use super::events::UiInputEvent;
@@ -12,10 +12,11 @@ pub trait ViewApi: Send {
     /// Renders the view and returns an optional event based on user interactions.
     ///
     /// # Arguments
+    /// * `publish` - A function to publish `UiInputEvent` events.
     /// * `ctx` - The `egui::Context` for rendering the UI.
     ///
     /// # Returns
-    /// An optional `AppEvent` if the view triggers an action.
+    /// A result indicating success or failure.
     fn render<F: Fn(UiInputEvent) + ?Sized>(
         &mut self,
         publish: &F,
