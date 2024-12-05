@@ -131,12 +131,14 @@ jobs:
           toolchain: stable
           target: ${{ matrix.target }}
           override: true
+      - name: Install Dependencies
+        run: sudo apt install libdbus-1-dev pkg-config
       - uses: actions-rs/cargo@v1
         with:
           use-cross: true
           command: build
           args: --release --target=${{ matrix.target }}
-      - name: Archive code coverage results
+      - name: Upload binaries
         uses: actions/upload-artifact@v3
         with:
           name: built-binary
