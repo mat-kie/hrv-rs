@@ -29,17 +29,22 @@ use tokio::{
 /// It provides methods for starting, storing, and discarding acquisitions, as well as handling events.
 #[async_trait]
 pub trait DataAcquisitionApi {
-    /// Start recording an Acquisition, returns the model handle and the sender for the events
+    /// Start recording an Acquisition, returns the model handle and the sender for the events.
     fn start_acquisition(&mut self) -> Result<ModelHandle<dyn AcquisitionModelApi>>;
-    /// stop the current acquisition
+    /// Stop the current acquisition.
     fn stop_acquisition(&mut self) -> Result<()>;
 
+    /// Discard the current acquisition.
     fn discard_acquisition(&mut self) -> Result<()>;
+    /// Store the current acquisition asynchronously.
     async fn store_acquisition(&mut self) -> Result<()>;
 
+    /// Set the active acquisition by index asynchronously.
     async fn set_active_acq(&mut self, idx: usize) -> Result<()>;
 
+    /// Set the statistics window for the active acquisition asynchronously.
     async fn set_stats_window(&mut self, window: &Duration) -> Result<()>;
+    /// Set the outlier filter value for the active acquisition asynchronously.
     async fn set_outlier_filter_value(&mut self, filter: f64) -> Result<()>;
 }
 
@@ -51,8 +56,11 @@ pub trait DataAcquisitionApi {
 pub struct AcquisitionController<AMT: AcquisitionModelApi + Default> {
     /// A thread-safe, shared reference to the acquisition model.
     model: Arc<RwLock<StorageModel<AMT>>>,
+    /// A sender for broadcasting application events.
     event_bus: Sender<AppEvent>,
+    /// A handle for the listener task.
     listener_handle: Option<JoinHandle<()>>,
+    /// The currently active acquisition, if any.
     active_acquisition: Option<Arc<RwLock<AMT>>>,
 }
 
@@ -60,7 +68,8 @@ impl<AMT: AcquisitionModelApi + Default> AcquisitionController<AMT> {
     /// Creates a new `AcquisitionController` instance.
     ///
     /// # Arguments
-    /// * `model` - An `Arc<Mutex<AMT>>` representing the thread-safe shared model.
+    /// * `model` - An `Arc<RwLock<StorageModel<AMT>>>` representing the thread-safe shared model.
+    /// * `event_bus` - A `Sender<AppEvent>` for broadcasting application events.
     ///
     /// # Returns
     /// A new instance of `AcquisitionController`.
@@ -73,6 +82,11 @@ impl<AMT: AcquisitionModelApi + Default> AcquisitionController<AMT> {
         }
     }
 
+    /// Listens for messages on the event bus and processes them.
+    ///
+    /// # Arguments
+    /// * `acq` - A shared reference to the active acquisition model.
+    /// * `channel` - A receiver for application events.
     async fn msg_listener(acq: Arc<RwLock<AMT>>, mut channel: Receiver<AppEvent>) {
         loop {
             match channel.recv().await {
@@ -90,6 +104,10 @@ impl<AMT: AcquisitionModelApi + Default> AcquisitionController<AMT> {
         }
     }
 
+    /// Retrieves the currently active acquisition.
+    ///
+    /// # Returns
+    /// A reference to the active acquisition, or an error if none is active.
     fn get_active_acq(&self) -> Result<&Arc<RwLock<AMT>>> {
         self.active_acquisition
             .as_ref()
@@ -151,6 +169,7 @@ impl<AMT: AcquisitionModelApi + Default + Serialize + DeserializeOwned + 'static
         }
         Ok(())
     }
+
     async fn store_acquisition(&mut self) -> Result<()> {
         self.stop_acquisition()?;
         if let Some(acq) = self.active_acquisition.take() {

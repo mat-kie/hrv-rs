@@ -25,6 +25,7 @@ use tokio::sync::broadcast::Sender;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
+
 /// API for Bluetooth operations.
 pub trait BluetoothApi: Send + Sync {
     /// Returns a reference to the Bluetooth model.
@@ -34,12 +35,13 @@ pub trait BluetoothApi: Send + Sync {
     fn discover_adapters<'a>(&'a mut self)
         -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>>;
 
-    /// Discovers available Bluetooth adapters.
+    /// Selects a Bluetooth adapter.
     fn select_adapter<'a>(
         &'a self,
         uuid: &'a AdapterDescriptor,
     ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>>;
 
+    /// Selects a Bluetooth peripheral.
     fn select_peripheral<'a>(
         &'a self,
         uuid: &'a DeviceDescriptor,
@@ -78,6 +80,10 @@ impl BluetoothController {
     ///
     /// # Arguments
     /// - `model`: The Bluetooth model instance.
+    /// - `event_bus`: The event bus for broadcasting application events.
+    ///
+    /// # Returns
+    /// A new `BluetoothController` instance.
     pub fn new(model: Arc<RwLock<dyn BluetoothModelApi>>, event_bus: Sender<AppEvent>) -> Self {
         Self {
             model,
@@ -88,6 +94,10 @@ impl BluetoothController {
         }
     }
 
+    /// Retrieves the selected Bluetooth adapter.
+    ///
+    /// # Returns
+    /// A reference to the selected adapter, or an error if none is selected.
     async fn get_adapter(&self) -> Result<&Adapter> {
         let model = self.model.read().await;
         let desc = model
@@ -99,6 +109,15 @@ impl BluetoothController {
             .ok_or(anyhow!("could not find the selected adapter"))
     }
 
+    /// Listens to notifications from a specific peripheral.
+    ///
+    /// # Arguments
+    /// - `adapter`: The Bluetooth adapter.
+    /// - `peripheral_address`: The address of the peripheral.
+    /// - `tx`: The event transmitter.
+    ///
+    /// # Returns
+    /// A future that resolves to a join handle for the listener task.
     #[allow(clippy::type_complexity)]
     fn listen_to_peripheral<'a>(
         adapter: Adapter,
@@ -137,13 +156,21 @@ impl BluetoothController {
                         break;
                     }
                 }
-                warn!("BT transciever terminated");
+                warn!("BT transceiver terminated");
                 Err(anyhow!("listener terminated"))
             });
             Ok(fut)
         })
     }
-    // Launches a peripheral updater task.
+
+    /// Launches a peripheral updater task.
+    ///
+    /// # Arguments
+    /// - `adapter`: The Bluetooth adapter.
+    /// - `_channel`: The event transmitter.
+    ///
+    /// # Returns
+    /// A future that resolves to a join handle for the updater task.
     async fn launch_periphal_updater(
         &self,
         adapter: Adapter,
@@ -182,6 +209,7 @@ impl BluetoothApi for BluetoothController {
             Ok(())
         })
     }
+
     fn select_adapter<'a>(
         &'a self,
         adapter: &'a AdapterDescriptor,

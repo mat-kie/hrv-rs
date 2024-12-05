@@ -34,10 +34,10 @@ impl<ACT: DataAcquisitionApi + Send + 'static, BTCT: BluetoothApi + 'static>
     /// Creates a new `AppController`.
     ///
     /// # Arguments
-    /// - `bt_model`: The Bluetooth model.
-    /// - `acq_model`: The acquisition model.
     /// - `ble_controller`: The Bluetooth controller.
     /// - `acq_controller`: The acquisition controller.
+    /// - `storage`: The storage model.
+    /// - `event_bus`: The event bus for broadcasting application events.
     ///
     /// # Returns
     /// A new `AppController` instance.
@@ -58,20 +58,29 @@ impl<ACT: DataAcquisitionApi + Send + 'static, BTCT: BluetoothApi + 'static>
         }
     }
 
+    /// Returns the view manager.
+    ///
+    /// # Returns
+    /// A `ViewManager` instance.
     pub fn get_viewmanager(&self) -> ViewManager {
         ViewManager::new(self.view_tx.subscribe(), self.event_bus.clone())
     }
 
+    /// Handles UI input events.
+    ///
+    /// # Arguments
+    /// - `event`: The UI input event to handle.
+    ///
+    /// # Returns
+    /// A result indicating success or failure.
     async fn ui_event(&mut self, event: UiInputEvent) -> Result<()> {
         match event {
             UiInputEvent::TimeWindowChanged(time) => {
                 self.acq_controller.set_stats_window(&time).await?;
             }
             UiInputEvent::OutlierFilterChanged(val) => {
-                // TODO: Implement outlier filter update logic.
                 self.acq_controller.set_outlier_filter_value(val).await?;
             }
-
             UiInputEvent::AcquisitionStopReq => {
                 self.acq_controller.stop_acquisition()?;
                 self.ble_controller.stop_listening().await?;
@@ -116,8 +125,6 @@ impl<ACT: DataAcquisitionApi + Send + 'static, BTCT: BluetoothApi + 'static>
             }
             UiInputEvent::LoadModel(path) => {
                 let json = fs::read_to_string(&path).await?;
-                //
-
                 if let Ok(Ok(sm)) = tokio::task::spawn_blocking(move || {
                     let serde_result: Result<StorageModel<AcquisitionModel>, serde_json::Error> =
                         serde_json::from_str(json.as_str());
@@ -157,8 +164,6 @@ impl<ACT: DataAcquisitionApi + Send + 'static, BTCT: BluetoothApi + 'static>
     /// Processes application-level events and delegates them to appropriate controllers.
     ///
     /// # Arguments
-    /// - `view_ch`: Sender for view updates.
-    /// - `event_ch`: Receiver for application events.
     /// - `gui_ctx`: The GUI context.
     pub async fn event_handler(mut self, gui_ctx: egui::Context) {
         let mut event_ch_rx = self.event_bus.subscribe();

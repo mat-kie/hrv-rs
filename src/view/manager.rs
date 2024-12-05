@@ -1,3 +1,14 @@
+/// Constructs a new `HrvStatistics` from RR intervals and heart rate values.
+///
+/// # Arguments
+///
+/// * `rr_intervals` - A slice of RR intervals in milliseconds.
+/// * `hr_values` - A slice of heart rate values.
+///
+/// # Returns
+///
+/// Returns an `Ok(HrvStatistics)` containing the calculated HRV statistics, or
+/// an `Err` if there is insufficient data.
 use std::sync::Arc;
 
 use eframe::App;
@@ -24,9 +35,14 @@ use crate::{
 
 use super::{acquisition::AcquisitionView, overview::StorageView};
 
+/// Represents the different states of the application's view.
+///
+/// This enum is used to switch between the overview and acquisition views.
 #[derive(Clone, Debug)]
 pub enum ViewState {
+    /// The overview view displaying stored acquisitions.
     Overview(ModelHandle<StorageModel<AcquisitionModel>>),
+    /// The acquisition view for real-time data collection.
     Acquisition(
         (
             ModelHandle<dyn AcquisitionModelApi>,
@@ -35,13 +51,27 @@ pub enum ViewState {
     ),
 }
 
+/// Enumeration of the application's views.
+///
+/// Holds the actual view instances that implement the rendering logic.
 enum View {
+    /// Empty state when no view is active.
     Empty,
+    /// The overview view instance.
     Overview(StorageView<StorageModel<AcquisitionModel>>),
+    /// The acquisition view instance.
     Acquisition(AcquisitionView),
 }
 
 impl ViewApi for View {
+    /// Renders the current view.
+    ///
+    /// # Arguments
+    /// * `publish` - Function to publish `UiInputEvent`s.
+    /// * `ctx` - Egui context for rendering.
+    ///
+    /// # Returns
+    /// `Result<(), String>` indicating success or an error message.
     fn render<F: Fn(UiInputEvent) + ?Sized>(
         &mut self,
         publish: &F,
@@ -56,6 +86,15 @@ impl ViewApi for View {
 }
 
 impl From<ViewState> for View {
+    /// Converts a `ViewState` into a `View`.
+    ///
+    /// Initializes the appropriate view based on the state.
+    ///
+    /// # Arguments
+    /// * `val` - The `ViewState` to convert.
+    ///
+    /// # Returns
+    /// A `View` instance.
     fn from(val: ViewState) -> Self {
         match val {
             ViewState::Acquisition((model, bt_model)) => {
@@ -67,13 +106,28 @@ impl From<ViewState> for View {
         }
     }
 }
+
+/// Manages the application's views and handles view updates.
+///
+/// The `ViewManager` listens for view state changes and updates the active view accordingly.
 pub struct ViewManager {
+    /// Sender for application events.
     e_tx: Sender<AppEvent>,
+    /// The currently active view wrapped in a thread-safe `Arc<RwLock>`.
     active_view: Arc<RwLock<View>>,
+    /// Handle for the background task that listens for view state changes.
     _task_handle: JoinHandle<()>,
 }
 
 impl ViewManager {
+    /// Creates a new `ViewManager`.
+    ///
+    /// # Arguments
+    /// * `v_rx` - Receiver for `ViewState` updates.
+    /// * `e_tx` - Sender for `AppEvent`s.
+    ///
+    /// # Returns
+    /// A new instance of `ViewManager`.
     pub fn new(mut v_rx: Receiver<ViewState>, e_tx: Sender<AppEvent>) -> Self {
         let active_view = Arc::new(RwLock::new(View::Empty));
         let task_view = active_view.clone();
@@ -90,22 +144,34 @@ impl ViewManager {
         }
     }
 
+    /// Publishes a `UiInputEvent` to the application event stream.
+    ///
+    /// # Arguments
+    /// * `event` - The `UiInputEvent` to publish.
     fn publish(&self, event: UiInputEvent) {
         if let Err(e) = self.e_tx.send(AppEvent::UiInput(event)) {
-            error!("View failed to send event:{}", e.to_string())
+            error!("View failed to send event: {}", e.to_string())
         }
     }
 }
 
 impl App for ViewManager {
+    /// Updates the application's UI.
+    ///
+    /// Called by the eframe framework to render the UI each frame.
+    ///
+    /// # Arguments
+    /// * `ctx` - The Egui context.
+    /// * `_frame` - The eframe frame (unused).
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Set the UI scaling factor for better readability.
         ctx.set_pixels_per_point(1.5);
         if let Err(e) = self
             .active_view
             .blocking_write()
             .render(&|e| self.publish(e), ctx)
         {
-            error!("view failed to render: {}", e)
+            error!("View failed to render: {}", e)
         }
     }
 }

@@ -1,7 +1,10 @@
-//! HRV Model
+//! HRV (Heart Rate Variability) Model
 //!
-//! This module defines the data structures and methods for managing HRV (Heart Rate Variability) data.
-//! It provides functionality for storing, retrieving, and analyzing HRV-related statistics.
+//! This module defines the data structures and methods for managing HRV data.
+//! It provides functionality for storing, retrieving, and analyzing HRV-related statistics,
+//! including calculations of RMSSD, SDRR, and Poincaré plot metrics.
+//! The module processes raw heart rate data and computes various HRV parameters used
+//! in the analysis of heart rate variability.
 
 use super::bluetooth::HeartrateMessage;
 use crate::math::hrv::{calc_poincare_metrics, calc_rmssd, calc_sdrr};
@@ -10,42 +13,43 @@ use nalgebra::DVector;
 use std::fmt::Debug;
 use time::Duration;
 
-// TODO: make configurable
-/// Constant for the outlier filter window size
+/// The size of the sliding window used in the outlier filter.
+///
+/// This constant defines the number of RR intervals considered when applying
+/// the outlier filter to remove anomalies in the data.
 const FILTER_WINDOW_SIZE: usize = 5;
 
 /// Stores heart rate variability (HRV) statistics results.
-#[derive(Default, Clone, Debug)]
-/// `HrvStatistics` structure.
 ///
-/// Represents data related to HRV analysis, including statistics and session details.
+/// This structure contains the calculated HRV parameters based on RR intervals.
+/// It includes statistical measures like RMSSD, SDRR, and Poincaré plot metrics.
+#[derive(Default, Clone, Debug)]
 pub struct HrvStatistics {
-    /// Root Mean Square of Successive Differences.
+    /// Root Mean Square of Successive Differences (RMSSD).
     pub rmssd: f64,
-    /// Standard Deviation of RR intervals.
-    #[allow(dead_code)]
+    /// Standard Deviation of RR intervals (SDRR).
     pub sdrr: f64,
-    /// Poincare SD1 (short-term HRV).
+    /// Short-term variability (SD1) from Poincaré plot.
     pub sd1: f64,
-    /// Eigenvector for SD1.
+    /// Eigenvector corresponding to SD1.
     #[allow(dead_code)]
     pub sd1_eigenvec: [f64; 2],
-    /// Poincare SD2 (long-term HRV).
+    /// Long-term variability (SD2) from Poincaré plot.
     pub sd2: f64,
-    /// Eigenvector for SD2.
+    /// Eigenvector corresponding to SD2.
     #[allow(dead_code)]
     pub sd2_eigenvec: [f64; 2],
-    /// Ratio of SD1 to SD2.
+    /// Ratio of SD1 to SD2, indicating the balance between short-term and long-term variability.
     #[allow(dead_code)]
     pub sd1_sd2_ratio: f64,
-    /// Average heart rate.
+    /// Average heart rate over the analysis period.
     pub avg_hr: f64,
 }
 
-/// `HrvSessionData` structure.
+/// Manages runtime data related to HRV analysis.
 ///
-/// Manages runtime data related to HRV analysis, including RR intervals, heart rate values,
-/// and the calculated HRV statistics.
+/// This structure collects RR intervals, heart rate values, and timestamps.
+/// It processes incoming heart rate measurements and computes HRV statistics.
 #[derive(Default, Debug, Clone)]
 pub struct HrvSessionData {
     /// RR intervals in milliseconds.
@@ -54,33 +58,44 @@ pub struct HrvSessionData {
     pub rr_time: Vec<Duration>,
     /// Heart rate values.
     pub hr_values: Vec<f64>,
-    /// Reception timestamps.
+    /// Reception timestamps for heart rate measurements.
     pub rx_time: Vec<Duration>,
     /// Calculated HRV statistics.
     pub hrv_stats: Option<HrvStatistics>,
+    /// Time series of RMSSD values over time.
     pub rmssd_ts: Vec<[f64; 2]>,
+    /// Time series of SD1 values over time.
     pub sd1_ts: Vec<[f64; 2]>,
+    /// Time series of SD2 values over time.
     pub sd2_ts: Vec<[f64; 2]>,
+    /// Time series of heart rate values over time.
     pub hr_ts: Vec<[f64; 2]>,
 }
 
+/// Represents data collected during an HRV (Heart Rate Variability) session.
+///
+/// This struct holds heart rate values, RR intervals, reception timestamps, and HRV statistics.
+/// It provides methods for processing raw acquisition data, filtering outliers, and calculating
+/// HRV statistics.
 impl HrvSessionData {
     /// Creates an `HrvSessionData` instance from acquisition data.
     ///
-    /// This method processes raw acquisition data, applies optional time-based filtering,
+    /// Processes raw acquisition data, applies optional time-based filtering,
     /// filters outliers from the RR intervals, and calculates HRV statistics.
     ///
-    /// # Parameters
-    /// - `data`: A slice of `(Duration, HeartrateMessage)` tuples representing
+    /// # Arguments
+    ///
+    /// * `data` - A slice of `(Duration, HeartrateMessage)` tuples representing
     ///   time-stamped heart rate measurements.
-    /// - `window`: An optional `Duration` specifying the time window for filtering data.
-    ///   Only measurements after `data.last().unwrap().0 - window` will be included.
-    /// - `outlier_filter`: A threshold value used for identifying and removing outliers
+    /// * `window` - An optional `Duration` specifying the time window for filtering data.
+    ///   Only measurements within this window will be included.
+    /// * `outlier_filter` - A threshold value used for identifying and removing outliers
     ///   in RR intervals.
     ///
     /// # Returns
-    /// - `Ok(HrvSessionData)` if the processing succeeds.
-    /// - `Err` if HRV statistics calculation fails (e.g., insufficient data for statistics).
+    ///
+    /// Returns an `Ok(HrvSessionData)` if the processing succeeds, or an `Err` if HRV
+    /// statistics calculation fails (e.g., due to insufficient data).
     pub fn from_acquisition(
         data: &[(Duration, HeartrateMessage)],
         window: Option<Duration>,
@@ -158,8 +173,9 @@ impl HrvSessionData {
     ///
     /// Calculates cumulative time and updates the `rr_intervals` and `rr_time` vectors.
     ///
-    /// # Parameters
-    /// - `rr_measurement`: The RR interval in milliseconds.
+    /// # Arguments
+    ///
+    /// * `rr_measurement` - The RR interval in milliseconds.
     fn add_rr_measurement(&mut self, rr_measurement: u16) {
         let rr_ms = rr_measurement as f64;
         let cumulative_time = if let Some(last) = self.rr_time.last() {
@@ -172,14 +188,15 @@ impl HrvSessionData {
         self.rr_time.push(cumulative_time);
     }
 
-    /// Adds an HR service message to the runtime data.
+    /// Adds a heart rate measurement to the session data.
     ///
     /// Updates the session with RR intervals, heart rate values, and reception timestamps
     /// extracted from the provided `HeartrateMessage`.
     ///
-    /// # Parameters
-    /// - `hrs_msg`: The `HeartrateMessage` containing HR and RR interval data.
-    /// - `elapsed_time`: The timestamp associated with the message.
+    /// # Arguments
+    ///
+    /// * `hrs_msg` - The `HeartrateMessage` containing HR and RR interval data.
+    /// * `elapsed_time` - The timestamp associated with the message.
     fn add_measurement(&mut self, hrs_msg: &HeartrateMessage, elapsed_time: &Duration) {
         for &rr_interval in hrs_msg.get_rr_intervals() {
             self.add_rr_measurement(rr_interval);
@@ -188,10 +205,11 @@ impl HrvSessionData {
         self.rx_time.push(*elapsed_time);
     }
 
-    /// Returns a list of Poincare plot points.
+    /// Returns a list of Poincaré plot points.
     ///
     /// # Returns
-    /// A `Vec` of `[f64; 2]` points representing successive RR intervals.
+    ///
+    /// A vector of `[f64; 2]` points representing successive RR intervals.
     pub fn get_poincare(&self) -> Vec<[f64; 2]> {
         self.rr_intervals
             .windows(2)
@@ -202,22 +220,25 @@ impl HrvSessionData {
     /// Checks if there is sufficient data for HRV calculations.
     ///
     /// # Returns
-    /// `true` if there are at least 4 RR intervals; `false` otherwise.
+    ///
+    /// `true` if there are enough RR intervals to perform HRV analysis; `false` otherwise.
     pub fn has_sufficient_data(&self) -> bool {
         self.rr_intervals.len() >= 4
     }
 
     /// Applies an outlier filter to the RR intervals and optional time series.
     ///
-    /// # Parameters
-    /// - `rr_intervals`: A slice of RR intervals to filter.
-    /// - `opt_rr_time`: An optional slice of timestamps corresponding to the RR intervals.
-    /// - `outlier_filter`: The outlier threshold for filtering.
-    /// - `window_size`: The size of the sliding window used for filtering.
+    /// # Arguments
+    ///
+    /// * `rr_intervals` - A slice of RR intervals to filter.
+    /// * `opt_rr_time` - An optional slice of timestamps corresponding to the RR intervals.
+    /// * `outlier_filter` - The outlier threshold for filtering.
+    /// * `window_size` - The size of the sliding window used for filtering.
     ///
     /// # Returns
-    /// - A tuple `(Vec<f64>, Vec<Duration>)` containing the filtered RR intervals
-    ///   and timestamps (empty if `opt_rr_time` is `None`).
+    ///
+    /// A tuple `(Vec<f64>, Vec<Duration>)` containing the filtered RR intervals
+    /// and timestamps (empty if `opt_rr_time` is `None`).
     fn apply_outlier_filter(
         rr_intervals: &[f64],
         opt_rr_time: Option<&[Duration]>,
@@ -262,7 +283,17 @@ impl HrvSessionData {
 }
 
 impl HrvStatistics {
-    /// Constructs a new `HrvStatistics` from runtime data and an optional time window.
+    /// Constructs a new `HrvStatistics` from RR intervals and heart rate values.
+    ///
+    /// # Arguments
+    ///
+    /// * `rr_intervals` - A slice of RR intervals in milliseconds.
+    /// * `hr_values` - A slice of heart rate values.
+    ///
+    /// # Returns
+    ///
+    /// Returns an `Ok(HrvStatistics)` containing the calculated HRV statistics, or
+    /// an `Err` if there is insufficient data.
     fn new(rr_intervals: &[f64], hr_values: &[f64]) -> Result<Self> {
         if rr_intervals.len() < 4 {
             return Err(anyhow!(
