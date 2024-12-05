@@ -135,7 +135,7 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: windows-binary
-          path: target
+          path: target/x86_64-pc-windows-gnu/release/hrv-rs*
   build:
     name: Build Linux
     runs-on: ubuntu-latest
