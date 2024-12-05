@@ -6,7 +6,7 @@
 use super::bluetooth::HeartrateMessage;
 use crate::model::hrv::{HrvSessionData, HrvStatistics};
 use anyhow::Result;
-use log::trace;
+use log::{trace, warn};
 use mockall::automock;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::fmt::Debug;
@@ -168,8 +168,13 @@ impl AcquisitionModel {
     /// # Returns
     /// A result indicating success or failure.
     fn update(&mut self) -> Result<()> {
-        self.sessiondata =
-            HrvSessionData::from_acquisition(&self.measurements, self.window, self.outlier_filter)?;
+        match HrvSessionData::from_acquisition(&self.measurements, self.window, self.outlier_filter)
+        {
+            Ok(data) => self.sessiondata = data,
+            Err(e) => {
+                warn!("could not calculate session data: {}", e);
+            }
+        }
         Ok(())
     }
 }
@@ -233,5 +238,107 @@ impl AcquisitionModelApi for AcquisitionModel {
             self.outlier_filter = value;
         }
         self.update()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::bluetooth::HeartrateMessage;
+    use time::macros::datetime;
+
+    fn create_test_hr_msg(bpm: u8) -> HeartrateMessage {
+        let data = [0b00010000, bpm, 0, 4, 1, 4];
+        HeartrateMessage::new(&data)
+    }
+    fn create_test_model() -> AcquisitionModel {
+        AcquisitionModel {
+            start_time: datetime!(2023-01-01 00:00:00 UTC),
+            measurements: vec![
+                (Duration::seconds(1), create_test_hr_msg(60)),
+                (Duration::seconds(2), create_test_hr_msg(62)),
+            ],
+            window: Some(Duration::seconds(60)),
+            outlier_filter: 1.0,
+            sessiondata: HrvSessionData::default(),
+        }
+    }
+
+    #[test]
+    fn test_get_start_time() {
+        let model = create_test_model();
+        assert_eq!(model.get_start_time(), datetime!(2023-01-01 00:00:00 UTC));
+    }
+
+    #[test]
+    fn test_get_last_msg() {
+        let model = create_test_model();
+        assert_eq!(model.get_last_msg(), Some(create_test_hr_msg(62)));
+    }
+
+    #[test]
+    fn test_get_hrv_stats() {
+        let model = create_test_model();
+        assert!(model.get_hrv_stats().is_none());
+    }
+
+    #[test]
+    fn test_get_stats_window() {
+        let model = create_test_model();
+        assert_eq!(model.get_stats_window(), &Some(Duration::seconds(60)));
+    }
+
+    #[test]
+    fn test_get_outlier_filter_value() {
+        let model = create_test_model();
+        assert_eq!(model.get_outlier_filter_value(), 1.0);
+    }
+
+    #[test]
+    fn test_set_outlier_filter_value() {
+        let mut model = create_test_model();
+
+        model.set_outlier_filter_value(2.0).unwrap();
+        assert_eq!(model.get_outlier_filter_value(), 2.0);
+    }
+
+    #[test]
+    fn test_get_poincare_points() {
+        let model = create_test_model();
+        assert!(model.get_poincare_points().is_empty());
+    }
+
+    #[test]
+    fn test_add_measurement() {
+        let mut model = create_test_model();
+        let new_msg = create_test_hr_msg(64);
+        model.add_measurement(&new_msg).unwrap();
+        assert_eq!(model.get_last_msg(), Some(new_msg));
+    }
+
+    #[test]
+    fn test_set_stats_window() {
+        let mut model = create_test_model();
+        let new_window = Duration::seconds(120);
+        model.set_stats_window(&new_window).unwrap();
+        assert_eq!(model.get_stats_window(), &Some(new_window));
+    }
+
+    #[test]
+    fn test_get_session_data() {
+        let model = create_test_model();
+        assert!(model.get_session_data().hrv_stats.is_none());
+    }
+
+    #[test]
+    fn test_get_messages() {
+        let model = create_test_model();
+        assert_eq!(model.get_messages().len(), 2);
+    }
+
+    #[test]
+    fn test_get_elapsed_time() {
+        let model = create_test_model();
+        assert_eq!(model.get_elapsed_time(), Duration::seconds(2));
     }
 }

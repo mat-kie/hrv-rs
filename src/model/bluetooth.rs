@@ -379,7 +379,7 @@ mod tests {
 
     #[test]
     fn test_hr_service_msg_short_hr_no_exp() {
-        // Short HR, no energy expenditure, no sensor contact, RR intervals (1024 and 256)
+        // Short HR, no energy expenditure, no sensor contact, RR intervals (1000 and 250)
         let data = [0b00010000, 80, 0, 4, 0, 1];
         let msg = HeartrateMessage::new(&data);
         assert_eq!(msg.get_hr(), 80.0);
@@ -389,7 +389,7 @@ mod tests {
 
     #[test]
     fn test_hr_service_msg_long_hr_no_exp() {
-        // Long HR, no energy expenditure, no sensor contact, RR intervals (1024 and 256)
+        // Long HR, no energy expenditure, no sensor contact, RR intervals (1000 and 250)
         let data = [0b00010001, 80, 0, 0, 4, 0, 1];
         let msg = HeartrateMessage::new(&data);
 
@@ -405,7 +405,7 @@ mod tests {
 
     #[test]
     fn test_hr_service_msg_with_energy_exp() {
-        // Short HR, energy expenditure, no sensor contact, RR intervals (1024 and 256)
+        // Short HR, energy expenditure, no sensor contact, RR intervals (1000 and 250)
         let data = [0b00011001, 80, 0, 1, 2, 0, 4, 0, 1];
         let msg = HeartrateMessage::new(&data);
 
@@ -490,7 +490,7 @@ mod tests {
         assert_eq!(model.get_adapters(), &adapters);
         assert!(model.get_selected_adapter().is_none());
 
-        let uuid = adapter1.get_uuid().clone();
+        let uuid = *adapter1.get_uuid();
         model.select_adapter(&uuid).unwrap();
         assert_eq!(model.get_selected_adapter(), &Some(adapter1));
     }
