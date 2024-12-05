@@ -62,9 +62,9 @@ jobs:
       - name: Build Project
         run: cargo build --release
 
-      - name: Upload Build Artifacts
-        uses: actions/upload-artifact@v3
-        with:
-          name: hrv-rs-build
-          path: target/release/
+#       - name: Upload Build Artifacts
+#         uses: actions/upload-artifact@v3
+#         with:
+#           name: hrv-rs-build
+#           path: target/release/hrv-rs
 
