@@ -43,10 +43,10 @@ jobs:
           profile: minimal
           toolchain: stable
           override: true
-
+      - name: Install Dependencies
+        run: sudo apt install libdbus-1-dev pkg-config
       - name: Run cargo test
         uses: actions-rs/cargo@v1
-        continue-on-error: true  # WARNING: only for this example, remove it!
         with:
           command: test
 
@@ -64,17 +64,16 @@ jobs:
           toolchain: stable
           override: true
           components: rustfmt, clippy
-
+      - name: Install Dependencies
+        run: sudo apt install libdbus-1-dev pkg-config
       - name: Run cargo fmt
         uses: actions-rs/cargo@v1
-        continue-on-error: true  # WARNING: only for this example, remove it!
         with:
           command: fmt
           args: --all -- --check
 
       - name: Run cargo clippy
         uses: actions-rs/cargo@v1
-        continue-on-error: true  # WARNING: only for this example, remove it!
         with:
           command: clippy
           args: -- -D warnings
@@ -84,6 +83,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 30
 
       - name: Install stable toolchain
         uses: actions-rs/toolchain@v1
