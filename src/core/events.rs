@@ -13,12 +13,15 @@ use crate::model::bluetooth::{AdapterDescriptor, DeviceDescriptor, HeartrateMess
 #[derive(Clone, Debug, PartialEq)]
 pub enum BluetoothEvent {
     /// Discover all available Bluetooth adapters.
+    #[allow(dead_code)]
     DiscoveredAdapters,
     /// An incoming heart rate message for processing.
     HrMessage(HeartrateMessage),
     /// Stop listening to Bluetooth devices.
+    #[allow(dead_code)]
     StoppedListening,
     /// Stop scanning for Bluetooth devices.
+    #[allow(dead_code)]
     StoppedScanning,
 }
 

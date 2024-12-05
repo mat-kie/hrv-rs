@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fmt::Debug;
 use uuid::Uuid;
+use anyhow::{anyhow, Result};
 
 /// Helper macro to check if a specific bit is set in a byte.
 macro_rules! is_bit_set {
@@ -242,7 +243,7 @@ pub trait BluetoothModelApi: Debug + Send + Sync {
     ///
     /// # Returns
     /// `Ok(())` if the adapter was successfully selected, or `Err(String)` if the UUID was not found.
-    fn select_adapter(&mut self, uuid: &Uuid) -> Result<(), String>;
+    fn select_adapter(&mut self, uuid: &Uuid) -> Result<()>;
 
     /// Gets the list of discovered Bluetooth devices.
     ///
@@ -313,7 +314,7 @@ impl BluetoothModelApi for BluetoothModel {
         &self.selected_adapter
     }
 
-    fn select_adapter(&mut self, uuid: &Uuid) -> Result<(), String> {
+    fn select_adapter(&mut self, uuid: &Uuid) -> Result<()> {
         if let Ok(idx) = self
             .adapters
             .binary_search_by(|adapter| adapter.get_uuid().cmp(uuid))
@@ -321,7 +322,7 @@ impl BluetoothModelApi for BluetoothModel {
             self.selected_adapter = Some(self.adapters[idx].clone());
             Ok(())
         } else {
-            Err(format!("Could not find an adapter for UUID: {}", uuid))
+            Err(anyhow!("Could not find an adapter for UUID: {}", uuid))
         }
     }
 

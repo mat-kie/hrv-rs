@@ -10,10 +10,11 @@ pub trait StorageModelApi: Sync + Send  {
     fn get_acquisitions(&self) -> &[ModelHandle<dyn AcquisitionModelApi>];
     fn get_mut_acquisitions(&self) -> &[Arc<RwLock<Self::AcqModelType>>];
     fn store_acquisition(&mut self, acq: Arc<RwLock<Self::AcqModelType>>);
+    #[allow(dead_code)]
     fn delete_acquisition(&mut self, idx: usize);
 }
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Debug)]
 pub struct StorageModel< AMT: AcquisitionModelApi> {
     acquisitions: Vec<Arc<RwLock<AMT>>>,
     handles: Vec<ModelHandle<dyn AcquisitionModelApi>>
@@ -87,6 +88,7 @@ impl<AMT: AcquisitionModelApi + Serialize + DeserializeOwned + 'static> StorageM
     }
 }
 
+#[derive(Debug)]
 pub struct ModelHandle<T:?Sized>{
     data:Arc<RwLock<T>>
 }
@@ -105,6 +107,7 @@ impl<T: ?Sized> From<Arc<RwLock<T>>> for ModelHandle<T>{
 
 
 impl<T:?Sized> ModelHandle<T>{
+    #[allow(dead_code)]
     pub async fn read(&self)->RwLockReadGuard<'_,T>{
         self.data.read().await
     }

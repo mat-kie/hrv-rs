@@ -5,20 +5,21 @@
 
 use crate::{
     core::{events::UiInputEvent, view_trait::ViewApi},
-    model::{acquisition::AcquisitionModelApi, storage::{ModelHandle, StorageModelApi}},
+    model::{
+        acquisition::AcquisitionModelApi,
+        storage::{ModelHandle, StorageModelApi},
+    },
 };
-use log::info;
 use time::macros::format_description;
 
-use super::acquisition::{render_filter_params, render_poincare_plot, render_stats, render_time_series};
-
-
-
+use super::acquisition::{
+    render_filter_params, render_poincare_plot, render_stats, render_time_series,
+};
 
 /// The `BluetoothView` renders a UI for selecting Bluetooth adapters and devices.
 ///
 /// Represents the view for managing Bluetooth interactions, such as device selection and connection.
-pub struct StorageView< SM: StorageModelApi + Send> {
+pub struct StorageView<SM: StorageModelApi + Send> {
     /// The shared Bluetooth model that provides adapter and device information.
     model: ModelHandle<SM>,
     selected: Option<ModelHandle<dyn AcquisitionModelApi>>,
@@ -32,20 +33,18 @@ impl<SM: StorageModelApi + Send> StorageView<SM> {
         }
     }
 }
-impl< SM: StorageModelApi + Send> ViewApi for StorageView<SM> {
+impl<SM: StorageModelApi + Send> ViewApi for StorageView<SM> {
     fn render<F: Fn(UiInputEvent) + ?Sized>(
         &mut self,
         publish: &F,
         ctx: &egui::Context,
     ) -> Result<(), String> {
-
         egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
                 // "File" Menu
                 ui.menu_button("File", |ui| {
                     if ui.button("Open").clicked() {
                         if let Some(file) = rfd::FileDialog::new().pick_file() {
-                            info!("load file clicked {:?}", file);
                             publish(UiInputEvent::LoadModel(file));
                         }
                         ui.close_menu(); // Close the menu after selection
@@ -75,19 +74,17 @@ impl< SM: StorageModelApi + Send> ViewApi for StorageView<SM> {
                         .get_start_time()
                         .format(fd)
                         .unwrap()
-                        .to_string());
-                if ui.add_sized([ui.available_width(), 20.0], btn).clicked()
-                {
+                        .to_string(),
+                );
+                if ui.add_sized([ui.available_width(), 20.0], btn).clicked() {
                     self.selected = Some(acq.clone());
                     publish(UiInputEvent::StoredAcqSelected(idx))
-                    
                 }
             }
             ui.separator();
-            if ui.button("New Acquisition") .clicked() {
+            if ui.button("New Acquisition").clicked() {
                 publish(UiInputEvent::PrepareAcquisition);
             }
-        
         });
 
         if let Some(selected) = &self.selected {
@@ -102,11 +99,14 @@ impl< SM: StorageModelApi + Send> ViewApi for StorageView<SM> {
                 ui.separator();
                 render_filter_params(ui, &publish, model);
             });
-            
-            egui::TopBottomPanel::bottom("time series panel").min_height(100.0).resizable(true).show(ctx, |ui|{
-                let model = &*selected.blocking_read();
-                render_time_series(ui, model);
-            });
+
+            egui::TopBottomPanel::bottom("time series panel")
+                .min_height(100.0)
+                .resizable(true)
+                .show(ctx, |ui| {
+                    let model = &*selected.blocking_read();
+                    render_time_series(ui, model);
+                });
             egui::CentralPanel::default().show(ctx, |ui| {
                 let model = &*selected.blocking_read();
                 render_poincare_plot(ui, model);

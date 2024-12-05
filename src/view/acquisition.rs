@@ -10,7 +10,6 @@ use crate::{
 use eframe::egui;
 use egui::Color32;
 use egui_plot::{Legend, Plot, Points};
-use log::info;
 use std::ops::RangeInclusive;
 use time::Duration;
 
@@ -172,7 +171,6 @@ pub fn render_filter_params<F: Fn(UiInputEvent)>(
         let slider = egui::Slider::new(&mut seconds, RangeInclusive::new(0.0, 600.0));
         if ui.add(slider).changed() {
             if let Some(new_duration) = Duration::checked_seconds_f64(seconds) {
-                info!("changed value to: {}", seconds);
                 publish(UiInputEvent::TimeWindowChanged(new_duration));
             }
         }
@@ -182,7 +180,6 @@ pub fn render_filter_params<F: Fn(UiInputEvent)>(
         ui.add(desc);
         let slider = egui::Slider::new(&mut outlier_value, RangeInclusive::new(0.1, 400.0));
         if ui.add(slider).changed() {
-            info!("changed value to: {}", outlier_value);
             publish(UiInputEvent::OutlierFilterChanged(outlier_value));
         }
         ui.end_row();
@@ -266,9 +263,12 @@ impl ViewApi for AcquisitionView {
             }
         });
 
-        egui::TopBottomPanel::bottom("time series panel").min_height(100.0).resizable(true).show(ctx, |ui|{
-            render_time_series(ui, &*model);
-        });
+        egui::TopBottomPanel::bottom("time series panel")
+            .min_height(100.0)
+            .resizable(true)
+            .show(ctx, |ui| {
+                render_time_series(ui, &*model);
+            });
         egui::CentralPanel::default().show(ctx, |ui| {
             render_poincare_plot(ui, &*model);
         });

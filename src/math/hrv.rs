@@ -3,7 +3,6 @@
 //! This module contains functions and utilities for calculating HRV metrics.
 //! It provides statistical and frequency-based methods for HRV analysis.
 
-use log::trace;
 use nalgebra::{DMatrix, DVector};
 
 /// `calc_rmssd` function.
@@ -28,10 +27,6 @@ pub fn calc_rmssd(data: &[f64]) -> f64 {
     let rr_points_b = DVector::from_row_slice(&data[1..]);
     let successive_diffs = rr_points_b - rr_points_a;
 
-    trace!(
-        "Calculating RMSSD with successive differences: {:?}",
-        successive_diffs
-    );
     (successive_diffs.dot(&successive_diffs) / (successive_diffs.len() as f64)).sqrt()
 }
 
@@ -54,7 +49,6 @@ pub fn calc_sdrr(data: &[f64]) -> f64 {
     );
 
     let variance = DVector::from_row_slice(data).variance();
-    trace!("Calculating SDRR with variance: {}", variance);
     variance.sqrt()
 }
 
@@ -101,7 +95,6 @@ pub fn calc_poincare_metrics(data: &[f64]) -> PoincareAnalysisResult {
         centered
     };
 
-    trace!("Poincare matrix:\n{:?}", poincare_matrix);
 
     // Covariance matrix and eigen decomposition
     let poincare_cov =

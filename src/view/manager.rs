@@ -18,14 +18,14 @@ use crate::{
 
 use super::{ acquisition::AcquisitionView, overview::StorageView};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum ViewState {
     Overview(ModelHandle<StorageModel<AcquisitionModel>>),
     Acquisition((ModelHandle<dyn AcquisitionModelApi>, ModelHandle<dyn BluetoothModelApi>)),
 }
 
 enum View {
-    NoView,
+    Empty,
     Overview(StorageView<StorageModel<AcquisitionModel>>),
     Acquisition(AcquisitionView),
 }
@@ -39,7 +39,7 @@ impl ViewApi for View {
         match self {
             Self::Overview(v) => v.render(publish, ctx),
             Self::Acquisition(v) => v.render(publish, ctx),
-            Self::NoView=>{Ok(())}
+            Self::Empty=>{Ok(())}
         }
     }
 }
@@ -62,7 +62,7 @@ pub struct ViewManager {
 
 impl ViewManager {
     pub fn new(mut v_rx: Receiver<ViewState>, e_tx: Sender<AppEvent>) -> Self {
-      let active_view = Arc::new(RwLock::new(View::NoView));
+      let active_view = Arc::new(RwLock::new(View::Empty));
       let task_view = active_view.clone();
       let _task_handle = 
       tokio::spawn(async move{

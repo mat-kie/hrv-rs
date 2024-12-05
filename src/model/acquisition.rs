@@ -5,17 +5,16 @@
 
 use super::bluetooth::HeartrateMessage;
 use crate::model::hrv::{HrvSessionData, HrvStatistics};
-use log::info;
+use anyhow::Result;
+use log::trace;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::fmt::Debug;
 use time::{Duration, OffsetDateTime};
-
 /// `AcquisitionModelApi` trait.
 ///
 /// Defines the interface for managing acquisition-related data, including runtime measurements,
 /// HRV statistics, and stored acquisitions.
 pub trait AcquisitionModelApi: Debug + Send + Sync {
-    fn reset(&mut self);
     /// Retrieves the start time of the current acquisition.
     ///
     /// # Returns
@@ -49,7 +48,7 @@ pub trait AcquisitionModelApi: Debug + Send + Sync {
     fn get_outlier_filter_value(&self) -> f64;
 
     /// Setter for the filter parameter value (fraction of std. dev)
-    fn set_outlier_filter_value(&mut self, value: f64);
+    fn set_outlier_filter_value(&mut self, value: f64) -> Result<()>;
 
     /// Retrieves the points for the Poincare plot.
     ///
@@ -61,16 +60,17 @@ pub trait AcquisitionModelApi: Debug + Send + Sync {
     ///
     /// # Arguments
     /// - `msg`: The `HeartrateMessage` containing the measurement data.
-    fn add_measurement(&mut self, msg: &HeartrateMessage);
+    fn add_measurement(&mut self, msg: &HeartrateMessage) -> Result<()>;
 
     /// Sets the statistics analysis window.
     ///
     /// # Arguments
     /// - `window`: A `Duration` representing the new analysis window size.
-    fn set_stats_window(&mut self, window: &Duration);
+    fn set_stats_window(&mut self, window: &Duration) -> Result<()>;
 
     fn get_session_data(&self) -> &HrvSessionData;
 
+    #[allow(dead_code)]
     fn get_messages(&self) -> &[(Duration, HeartrateMessage)];
 
     fn get_elapsed_time(&self) -> Duration;
@@ -90,7 +90,6 @@ pub struct AcquisitionModel {
     /// Processed session data.
     #[serde(skip)]
     sessiondata: HrvSessionData,
-    
 }
 
 impl Default for AcquisitionModel {
@@ -125,7 +124,8 @@ impl<'de> Deserialize<'de> for AcquisitionModel {
             &helper.measurements,
             helper.window,
             helper.outlier_filter,
-        );
+        )
+        .map_err(serde::de::Error::custom)?;
 
         Ok(AcquisitionModel {
             start_time: helper.start_time,
@@ -139,26 +139,21 @@ impl<'de> Deserialize<'de> for AcquisitionModel {
 
 impl AcquisitionModel {
     /// Updates the session data based on the current measurements.
-    fn update(&mut self) {
+    fn update(&mut self) -> Result<()> {
         self.sessiondata =
-            HrvSessionData::from_acquisition(&self.measurements, self.window, self.outlier_filter);
+            HrvSessionData::from_acquisition(&self.measurements, self.window, self.outlier_filter)?;
+        Ok(())
     }
-
 }
 
 impl AcquisitionModelApi for AcquisitionModel {
     fn get_elapsed_time(&self) -> Duration {
         if self.measurements.is_empty() {
-             Duration::default()
+            Duration::default()
         } else {
             let (ts, _) = self.measurements.last().unwrap();
             *ts
         }
-    }
-
-    fn reset(&mut self) {
-        self.measurements.clear();
-        self.start_time = OffsetDateTime::now_utc();
     }
 
     fn get_messages(&self) -> &[(Duration, HeartrateMessage)] {
@@ -188,26 +183,26 @@ impl AcquisitionModelApi for AcquisitionModel {
         &self.window
     }
 
-    fn add_measurement(&mut self, msg: &HeartrateMessage) {
-        info!("add HR measurement\n{}", msg);
+    fn add_measurement(&mut self, msg: &HeartrateMessage) -> Result<()> {
+        trace!("add HR measurement\n{}", msg);
         let elapsed = OffsetDateTime::now_utc() - self.start_time;
-        self.measurements.push((elapsed,*msg));
-        self.update();
+        self.measurements.push((elapsed, *msg));
+        self.update()
     }
 
-    fn set_stats_window(&mut self, window: &Duration) {
+    fn set_stats_window(&mut self, window: &Duration) -> Result<()> {
         self.window = Some(*window);
-        self.update();
+        self.update()
     }
 
     fn get_outlier_filter_value(&self) -> f64 {
         self.outlier_filter
     }
 
-    fn set_outlier_filter_value(&mut self, value: f64) {
+    fn set_outlier_filter_value(&mut self, value: f64) -> Result<()> {
         if value >= 0.0 {
             self.outlier_filter = value;
         }
-        self.update();
+        self.update()
     }
 }

@@ -8,7 +8,6 @@ use controller::{
     acquisition::AcquisitionController, application::AppController, bluetooth::BluetoothController,
 };
 use eframe::NativeOptions;
-use env_logger::Env;
 
 use model::storage::StorageModel;
 use model::{acquisition::AcquisitionModel, bluetooth::BluetoothModel};
@@ -71,13 +70,8 @@ mod view {
 /// Initializes logging, sets up asynchronous runtime, and starts the
 /// application with the eframe framework.
 fn main() {
-    // Initialize logger with environment-specific settings.
-    env_logger::Builder::from_env(
-        Env::default()
-            .filter_or("MY_LOG_LEVEL", "info")
-            .write_style_or("MY_LOG_STYLE", "always"),
-    )
-    .init();
+    // Initialize logger
+    env_logger::init();
 
     // Create a new Tokio runtime for asynchronous operations.
     let rt = Runtime::new().expect("Unable to create Runtime");
@@ -102,9 +96,10 @@ fn main() {
                 AcquisitionController::new(storage.clone(), event_bus.clone()),
                 storage,
                 event_bus,
-                cc.egui_ctx.clone(),
             );
-            Ok(Box::new(app.get_viewmanager()))
+            let res = Box::new(app.get_viewmanager());
+            tokio::spawn(app.event_handler(cc.egui_ctx.clone()));
+            Ok(res)
         }),
     )
     .expect("Failed to start eframe application");
