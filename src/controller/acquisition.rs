@@ -194,11 +194,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{
-        acquisition::MockAcquisitionModelApi,
-        storage::MockStorageModelApi,
-    };
-    
+    use crate::model::{acquisition::MockAcquisitionModelApi, storage::MockStorageModelApi};
+
     use tokio::sync::broadcast;
     #[tokio::test]
     async fn test_start_acquisition() {
