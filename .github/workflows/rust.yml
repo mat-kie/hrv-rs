@@ -116,30 +116,44 @@ jobs:
         with:
           name: code-coverage-report
           path: cobertura.xml
-  build:
-    name: Build
+  crossbuild:
+    name: Build Windows
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        target:
-          - x86_64-unknown-linux-gnu
-          - x86_64-pc-windows-gnu
     steps:
       - uses: actions/checkout@v4
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
-          target: ${{ matrix.target }}
+          target: x86_64-pc-windows-gnu
+          override: true
+      - uses: actions-rs/cargo@v1
+        with:
+          use-cross: true
+          command: build
+          args: --release --target=x86_64-pc-windows-gnu
+      - name: Upload binaries
+        uses: actions/upload-artifact@v3
+        with:
+          name: windows-binary
+          path: target/release/hrv-rs*
+  build:
+    name: Build Linux
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: x86_64-pc-windows-gnu
           override: true
       - name: Install Dependencies
         run: sudo apt install libdbus-1-dev pkg-config
       - uses: actions-rs/cargo@v1
         with:
-          use-cross: true
           command: build
-          args: --release --target=${{ matrix.target }}
+          args: --release 
       - name: Upload binaries
         uses: actions/upload-artifact@v3
         with:
-          name: built-binary
+          name: linux-binary
           path: target/release/hrv-rs*
