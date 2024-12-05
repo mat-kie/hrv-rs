@@ -245,32 +245,54 @@ impl HrvSessionData {
         outlier_filter: f64,
         window_size: usize,
     ) -> (Vec<f64>, Vec<Duration>) {
-        let predicate = |rr_window: &[f64], window_size: usize| {
-            let median_rr = rr_window[window_size / 2];
-            let mean_rr = rr_window.iter().sum::<f64>() / window_size as f64;
-            let deviation = (median_rr - mean_rr).abs() * 0.5;
+        let half_window = window_size / 2;
 
-            deviation < outlier_filter
+        // Helper function to check if a value is an outlier
+        let is_outlier = |idx: usize, values: &[f64]| {
+            let mut start = idx.saturating_sub(half_window);
+            let mut end = start + window_size;
+            if end >= values.len() {
+                end = values.len();
+                start = end.saturating_sub(window_size);
+            }
+
+            let window = &values[start..end];
+            let mean = window
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| start + i != idx)
+                .map(|(_, &v)| v)
+                .sum::<f64>()
+                / (window.len() - 1) as f64;
+
+            let deviation = (values[idx] - mean).abs();
+
+            deviation > outlier_filter
         };
+
         if let Some(rr_time) = opt_rr_time {
+            // Process both RR intervals and timestamps
             rr_intervals
-                .windows(window_size)
-                .zip(rr_time.windows(window_size))
-                .filter_map(|(rr_window, time_window)| {
-                    if predicate(rr_window, window_size) {
-                        Some((rr_window[window_size / 2], time_window[window_size / 2]))
+                .iter()
+                .zip(rr_time)
+                .enumerate()
+                .filter_map(|(i, (&rr, &time))| {
+                    if !is_outlier(i, rr_intervals) {
+                        Some((rr, time))
                     } else {
                         None
                     }
                 })
                 .unzip()
         } else {
+            // Process only RR intervals
             (
                 rr_intervals
-                    .windows(window_size)
-                    .filter_map(|rr_window| {
-                        if predicate(rr_window, window_size) {
-                            Some(rr_window[window_size / 2])
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, &rr)| {
+                        if !is_outlier(i, rr_intervals) {
+                            Some(rr)
                         } else {
                             None
                         }
@@ -336,5 +358,51 @@ mod tests {
         runtime.add_measurement(&hr_msg, &Duration::milliseconds(500));
         runtime.add_measurement(&hr_msg, &Duration::milliseconds(500));
         assert!(runtime.has_sufficient_data());
+    }
+
+    #[test]
+    fn test_hrv_statistics_new() {
+        let rr_intervals = vec![800.0, 810.0, 790.0, 805.0];
+        let hr_values = vec![75.0, 76.0, 74.0, 75.5];
+        let hrv_stats = HrvStatistics::new(&rr_intervals, &hr_values).unwrap();
+        assert!(hrv_stats.rmssd > 0.0);
+        assert!(hrv_stats.sdrr > 0.0);
+        assert!(hrv_stats.sd1 > 0.0);
+        assert!(hrv_stats.sd2 > 0.0);
+        assert!(hrv_stats.avg_hr > 0.0);
+    }
+
+    #[test]
+    fn test_hrv_session_data_from_acquisition() {
+        let hr_msg = HeartrateMessage::new(&[0b10000, 80, 255, 0]);
+        let data = vec![
+            (Duration::milliseconds(0), hr_msg),
+            (Duration::milliseconds(1000), hr_msg),
+            (Duration::milliseconds(2000), hr_msg),
+            (Duration::milliseconds(3000), hr_msg),
+        ];
+        let session_data = HrvSessionData::from_acquisition(&data, None, 50.0).unwrap();
+        assert!(session_data.has_sufficient_data());
+        assert!(session_data.hrv_stats.is_some());
+    }
+
+    #[test]
+    fn test_apply_outlier_filter() {
+        let rr_intervals = vec![800.0, 810.0, 790.0, 805.0, 900.0, 805.0, 810.0];
+        let (filtered_rr, _) = HrvSessionData::apply_outlier_filter(&rr_intervals, None, 50.0, 5);
+        assert_eq!(filtered_rr.len(), 6); // The outlier (900.0) should be filtered out
+    }
+
+    #[test]
+    fn test_get_poincare() {
+        let session_data = HrvSessionData {
+            rr_intervals: vec![800.0, 810.0, 790.0, 805.0],
+            ..Default::default()
+        };
+        let poincare_points = session_data.get_poincare();
+        assert_eq!(poincare_points.len(), 3);
+        assert_eq!(poincare_points[0], [800.0, 810.0]);
+        assert_eq!(poincare_points[1], [810.0, 790.0]);
+        assert_eq!(poincare_points[2], [790.0, 805.0]);
     }
 }
