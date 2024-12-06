@@ -5,6 +5,7 @@
 //! data acquisition, BLE communication, and HRV computation. The tool is
 //! structured using a modular, event-driven MVC architecture.
 
+use btleplug::platform::Adapter;
 use controller::{
     acquisition::AcquisitionController, application::AppController, bluetooth::BluetoothController,
 };
@@ -96,7 +97,7 @@ fn main() {
         NativeOptions::default(),
         Box::new(|cc| {
             let app = AppController::new(
-                BluetoothController::new(bluetooth_model, event_bus.clone()),
+                BluetoothController::<Adapter>::new(bluetooth_model, event_bus.clone()),
                 AcquisitionController::new(storage.clone(), event_bus.clone()),
                 storage,
                 event_bus,

@@ -8,6 +8,8 @@
 
 use anyhow::{anyhow, Result};
 use btleplug::api::BDAddr;
+#[cfg(test)]
+use mockall::automock;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fmt::Debug;
@@ -208,6 +210,10 @@ impl AdapterDescriptor {
             uuid: Uuid::new_v4(),
         }
     }
+    #[cfg(test)]
+    pub fn new_with_uuid(name: String, uuid: Uuid) -> Self {
+        Self { name, uuid }
+    }
     pub fn get_name(&self) -> &str {
         &self.name
     }
@@ -232,6 +238,7 @@ impl PartialOrd for AdapterDescriptor {
 /// - Managing Bluetooth adapters and their selection
 /// - Tracking discovered devices
 /// - Managing device scanning and connection states
+#[cfg_attr(test, automock)]
 pub trait BluetoothModelApi: Debug + Send + Sync {
     /// Gets the list of Bluetooth adapters as a vector of `(Name, UUID)` tuples.
     ///
