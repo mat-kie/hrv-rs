@@ -9,19 +9,18 @@ use crate::model::bluetooth::{BluetoothModelApi, DeviceDescriptor, HeartrateMess
 use crate::model::storage::ModelHandle;
 use crate::{core::events::AppEvent, model::bluetooth::AdapterDescriptor};
 use async_trait::async_trait;
-use btleplug::api::ScanFilter;
+use btleplug::api::{Peripheral, ScanFilter};
 use btleplug::{
     api::{BDAddr, Central, Manager as _},
-    platform::{Adapter, Manager, Peripheral},
+    platform::{Adapter, Manager},
 };
 
 use anyhow::{anyhow, Result};
-use btleplug::api::{Characteristic, ValueNotification};
-use futures::stream::Stream;
+
 use futures::StreamExt;
 use log::{trace, warn};
 use std::collections::HashMap;
-use std::pin::Pin;
+
 use std::sync::Arc;
 use tokio::sync::broadcast::Sender;
 use tokio::sync::RwLock;
@@ -56,127 +55,24 @@ pub trait BluetoothApi: Send + Sync {
     async fn stop_listening(&mut self) -> Result<()>;
 }
 
-// Define a trait for the Bluetooth Adapter API
-//#[cfg_attr(test, automock)]
 #[async_trait]
-pub trait BluetoothAdapterApi: Send + Sync {
-    async fn start_scan(&self, filter: ScanFilter) -> Result<()>;
-    async fn stop_scan(&self) -> Result<()>;
-    async fn peripherals(&self) -> Result<Vec<Arc<dyn BluetoothPeripheralApi>>>;
-    async fn get_name(&self) -> Result<String>;
-    // Add other necessary methods
-}
-
-#[async_trait]
-pub trait AdapterDiscovery<A: BluetoothAdapterApi> {
+pub trait AdapterDiscovery<A: Central + DisplayName>
+where
+    A::Peripheral: DisplayName,
+{
     async fn discover_adapters() -> Result<Vec<A>>;
 }
 
-// Define a trait for the Bluetooth Peripheral API
-//#[cfg_attr(test, automock)]
 #[async_trait]
-pub trait BluetoothPeripheralApi: Send + Sync {
-    fn address(&self) -> BDAddr;
-    async fn connect(&self) -> Result<()>;
-    #[allow(dead_code)]
-    async fn disconnect(&self) -> Result<()>;
-    async fn discover_services(&self) -> Result<()>;
-    fn characteristics(&self) -> Result<Vec<Characteristic>>;
-    async fn notifications(&self) -> Result<Pin<Box<dyn Stream<Item = ValueNotification> + Send>>>;
-    async fn subscribe(&self, characteristic: &Characteristic) -> Result<()>;
+pub trait DisplayName {
     async fn get_name(&self) -> Result<String>;
 }
-
-#[async_trait]
-impl BluetoothAdapterApi for Adapter {
-    async fn start_scan(&self, filter: ScanFilter) -> Result<()> {
-        Central::start_scan(self, filter)
-            .await
-            .map_err(|e| anyhow!(e))
-    }
-
-    async fn stop_scan(&self) -> Result<()> {
-        Central::stop_scan(self).await.map_err(|e| anyhow!(e))
-    }
-
-    async fn peripherals(&self) -> Result<Vec<Arc<dyn BluetoothPeripheralApi>>> {
-        let peripherals = Central::peripherals(self).await?;
-        let wrapped: Vec<Arc<dyn BluetoothPeripheralApi>> = peripherals
-            .into_iter()
-            .map(|p| Arc::new(p) as Arc<dyn BluetoothPeripheralApi>)
-            .collect();
-        Ok(wrapped)
-    }
-
-    async fn get_name(&self) -> Result<String> {
-        Ok(Central::adapter_info(self)
-            .await
-            .unwrap_or("unknown".to_string()))
-    }
-    // Implement other methods as needed
-}
-
-#[async_trait]
-impl AdapterDiscovery<Adapter> for Adapter {
-    async fn discover_adapters() -> Result<Vec<Adapter>> {
-        let manager = Manager::new().await?;
-        let adapters = manager.adapters().await?;
-        Ok(adapters)
-    }
-}
-
-#[async_trait]
-impl BluetoothPeripheralApi for Peripheral {
-    fn address(&self) -> BDAddr {
-        btleplug::api::Peripheral::address(self)
-    }
-
-    async fn connect(&self) -> Result<()> {
-        btleplug::api::Peripheral::connect(self)
-            .await
-            .map_err(|e| anyhow!(e))
-    }
-
-    async fn disconnect(&self) -> Result<()> {
-        btleplug::api::Peripheral::disconnect(self)
-            .await
-            .map_err(|e| anyhow!(e))
-    }
-
-    async fn discover_services(&self) -> Result<()> {
-        btleplug::api::Peripheral::discover_services(self)
-            .await
-            .map_err(|e| anyhow!(e))
-    }
-
-    fn characteristics(&self) -> Result<Vec<Characteristic>> {
-        Ok(btleplug::api::Peripheral::characteristics(self)
-            .into_iter()
-            .collect())
-    }
-
-    async fn notifications(&self) -> Result<Pin<Box<dyn Stream<Item = ValueNotification> + Send>>> {
-        btleplug::api::Peripheral::notifications(self)
-            .await
-            .map_err(|e| anyhow!(e))
-    }
-
-    async fn subscribe(&self, characteristic: &Characteristic) -> Result<()> {
-        btleplug::api::Peripheral::subscribe(self, characteristic)
-            .await
-            .map_err(|e| anyhow!(e))
-    }
-    async fn get_name(&self) -> Result<String> {
-        btleplug::api::Peripheral::properties(self)
-            .await
-            .map(|p| p.unwrap().local_name.unwrap_or("unknown".to_string()))
-            .map_err(|e| anyhow!(e))
-    }
-}
-
 /// The Bluetooth Controller manages BLE interactions, including scanning for devices
 /// and starting listening sessions.
-pub struct BluetoothController<A: BluetoothAdapterApi + Clone + AdapterDiscovery<A> + 'static> {
+pub struct BluetoothController<A: Central + DisplayName + AdapterDiscovery<A> + 'static>
+where
+    A::Peripheral: DisplayName,
+{
     /// The Bluetooth model instance.
     model: Arc<RwLock<dyn BluetoothModelApi>>,
     event_bus: Sender<AppEvent>,
@@ -188,7 +84,10 @@ pub struct BluetoothController<A: BluetoothAdapterApi + Clone + AdapterDiscovery
     adapters: HashMap<Uuid, A>, // Use trait object for adapter
 }
 
-impl<A: BluetoothAdapterApi + Clone + AdapterDiscovery<A>> BluetoothController<A> {
+impl<A: Central + AdapterDiscovery<A> + DisplayName> BluetoothController<A>
+where
+    A::Peripheral: DisplayName,
+{
     /// Creates a new `BluetoothController` instance.
     ///
     /// # Arguments
@@ -246,7 +145,7 @@ impl<A: BluetoothAdapterApi + Clone + AdapterDiscovery<A>> BluetoothController<A
         cheststrap.discover_services().await?;
 
         let char = cheststrap
-            .characteristics()?
+            .characteristics()
             .iter()
             .find(|c| c.uuid == HEARTRATE_MEASUREMENT_UUID)
             .ok_or(anyhow!("Peripheral has no Heartrate attribute"))?
@@ -294,8 +193,9 @@ impl<A: BluetoothAdapterApi + Clone + AdapterDiscovery<A>> BluetoothController<A
                 let mut descriptors = Vec::new();
                 for peripheral in &peripherals {
                     let address = peripheral.address();
-                    let name = peripheral.get_name().await?;
-                    descriptors.push(DeviceDescriptor { name, address });
+                    if let Ok(name) = peripheral.get_name().await {
+                        descriptors.push(DeviceDescriptor { name, address });
+                    }
                 }
                 // TODO: Send events when an error arises
                 descriptors.sort();
@@ -307,8 +207,10 @@ impl<A: BluetoothAdapterApi + Clone + AdapterDiscovery<A>> BluetoothController<A
 }
 
 #[async_trait]
-impl<A: BluetoothAdapterApi + Clone + AdapterDiscovery<A> + 'static> BluetoothApi
+impl<A: Central + DisplayName + AdapterDiscovery<A> + 'static> BluetoothApi
     for BluetoothController<A>
+where
+    A::Peripheral: DisplayName,
 {
     fn get_model(&self) -> Result<ModelHandle<dyn BluetoothModelApi>> {
         Ok(self.model.clone().into())
@@ -399,22 +301,110 @@ impl<A: BluetoothAdapterApi + Clone + AdapterDiscovery<A> + 'static> BluetoothAp
         Ok(())
     }
 }
+
+#[async_trait]
+impl DisplayName for Adapter {
+    async fn get_name(&self) -> Result<String> {
+        Ok(self.adapter_info().await?)
+    }
+}
+
+#[async_trait]
+impl AdapterDiscovery<Adapter> for Adapter {
+    async fn discover_adapters() -> Result<Vec<Adapter>> {
+        let manager = Manager::new().await?;
+        let adapters = manager.adapters().await?;
+        let mut result = Vec::new();
+        for adapter in adapters {
+            result.push(adapter);
+        }
+        Ok(result)
+    }
+}
+
+#[async_trait]
+impl DisplayName for btleplug::platform::Peripheral {
+    async fn get_name(&self) -> Result<String> {
+        if let Some(props) = self.properties().await? {
+            if let Some(name) = props.local_name {
+                return Ok(name);
+            }
+        }
+        Err(anyhow!("No name found"))
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::model::bluetooth::MockBluetoothModelApi;
     use anyhow::Result;
+    use btleplug::api::Central;
+    use btleplug::api::{Characteristic, ValueNotification};
+    use btleplug::{
+        api::{CentralEvent, CentralState, Descriptor, PeripheralProperties, Service, WriteType},
+        platform::PeripheralId,
+    };
+    use futures::stream::Stream;
     use mockall::mock;
+    use std::collections::BTreeSet;
+    use std::pin::Pin;
     use tokio::sync::broadcast;
 
-    use super::*;
     mock! {
-        Adapter{}
+        Peripheral{}
+
+        impl Clone for Peripheral {
+            fn clone(&self) -> Self;
+        }
+
+        impl std::fmt::Debug for Peripheral {
+            fn fmt<'a>(&self, f: &mut std::fmt::Formatter<'a>) -> std::fmt::Result;
+        }
 
         #[async_trait]
-        impl BluetoothAdapterApi for Adapter {
-            async fn start_scan(&self, filter: ScanFilter) -> Result<()>;
-            async fn stop_scan(&self) -> Result<()>;
-            async fn peripherals(&self) -> Result<Vec<Arc<dyn BluetoothPeripheralApi>>>;
+        impl Peripheral for Peripheral {
+            fn id(&self) -> PeripheralId;
+            fn address(&self) -> BDAddr;
+            async fn properties(&self) -> btleplug::Result<Option<PeripheralProperties>>;
+            fn services(&self) -> BTreeSet<Service>;
+            fn characteristics(&self) -> BTreeSet<Characteristic> {
+                self.services()
+                    .iter()
+                    .flat_map(|service| service.characteristics.clone().into_iter())
+                    .collect()
+            }
+            async fn is_connected(&self) -> btleplug::Result<bool>;
+            async fn connect(&self) -> btleplug::Result<()>;
+            async fn disconnect(&self) -> btleplug::Result<()>;
+            async fn discover_services(&self) -> btleplug::Result<()>;
+            async fn write(
+                &self,
+                characteristic: &Characteristic,
+                data: &[u8],
+                write_type: WriteType,
+            ) -> btleplug::Result<()>;
+            async fn read(&self, characteristic: &Characteristic) -> btleplug::Result<Vec<u8>>;
+            async fn subscribe(&self, characteristic: &Characteristic) -> btleplug::Result<()>;
+            async fn unsubscribe(&self, characteristic: &Characteristic) -> btleplug::Result<()>;
+            async fn notifications(&self) -> btleplug::Result<Pin<Box<dyn Stream<Item = ValueNotification> + Send>>>;
+            async fn write_descriptor(&self, descriptor: &Descriptor, data: &[u8]) -> btleplug::Result<()>;
+            async fn read_descriptor(&self, descriptor: &Descriptor) -> btleplug::Result<Vec<u8>>;
+        }
+        #[async_trait]
+        impl DisplayName for Peripheral {
+            async fn get_name(&self) -> Result<String>;
+        }
+    }
+
+    mock! {
+        Adapter{}
+        impl Clone for Adapter {
+            fn clone(&self) -> Self;
+        }
+
+        #[async_trait]
+        impl DisplayName for Adapter {
             async fn get_name(&self) -> Result<String>;
         }
 
@@ -422,13 +412,31 @@ mod tests {
         impl AdapterDiscovery<MockAdapter> for Adapter {
             async fn discover_adapters() -> Result<Vec<MockAdapter>>;
         }
-        impl Clone for Adapter {
-            fn clone(&self) -> Self;
+
+        #[async_trait]
+        impl Central for Adapter {
+            type Peripheral = MockPeripheral;
+
+            async fn events(&self) -> btleplug::Result<Pin<Box<dyn Stream<Item = CentralEvent> + Send>>>;
+
+            async fn start_scan(&self, filter: ScanFilter) -> btleplug::Result<()>;
+
+            async fn stop_scan(&self) -> btleplug::Result<()>;
+
+            async fn peripherals(&self) -> btleplug::Result<Vec<MockPeripheral>>;
+
+            async fn peripheral(&self, id: &PeripheralId) -> btleplug::Result<MockPeripheral>;
+
+            async fn add_peripheral(&self, address: &PeripheralId) -> btleplug::Result<MockPeripheral>;
+
+            async fn adapter_info(&self) -> btleplug::Result<String>;
+
+            async fn adapter_state(&self) -> btleplug::Result<CentralState>;
         }
     }
 
     #[tokio::test]
-    async fn test_discover_adapters() {
+    async fn test_discover_adapters_success() {
         let ctx = MockAdapter::discover_adapters_context();
         ctx.expect().times(1..).returning(|| {
             let mut adapter = MockAdapter::new();
@@ -444,9 +452,9 @@ mod tests {
         let (tx, _rx) = broadcast::channel(16);
         let model = Arc::new(RwLock::new(mock_model));
         let mut controller = BluetoothController::<MockAdapter>::new(model, tx);
-        controller.discover_adapters().await.unwrap();
-    }
 
+        assert!(controller.discover_adapters().await.is_ok());
+    }
     #[tokio::test]
     async fn test_select_adapter() {
         let mut mock_model = MockBluetoothModelApi::new();
@@ -458,7 +466,6 @@ mod tests {
         let adapter_desc = AdapterDescriptor::new("Test Adapter".to_string());
         controller.select_adapter(&adapter_desc).await.unwrap();
     }
-
     #[tokio::test]
     async fn test_start_scan() {
         let mut mock_adapter = MockAdapter::new();
