@@ -8,13 +8,12 @@
 
 use anyhow::{anyhow, Result};
 use btleplug::api::BDAddr;
+#[cfg(test)]
+use mockall::automock;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fmt::Debug;
 use uuid::Uuid;
-#[cfg(test)]
-use mockall::automock;
-
 
 /// Helper macro to check if a specific bit is set in a byte.
 macro_rules! is_bit_set {
@@ -210,6 +209,10 @@ impl AdapterDescriptor {
             name,
             uuid: Uuid::new_v4(),
         }
+    }
+    #[cfg(test)]
+    pub fn new_with_uuid(name: String, uuid: Uuid) -> Self {
+        Self { name, uuid }
     }
     pub fn get_name(&self) -> &str {
         &self.name

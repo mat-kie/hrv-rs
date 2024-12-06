@@ -9,7 +9,7 @@ use crate::model::bluetooth::{BluetoothModelApi, DeviceDescriptor, HeartrateMess
 use crate::model::storage::ModelHandle;
 use crate::{core::events::AppEvent, model::bluetooth::AdapterDescriptor};
 use async_trait::async_trait;
-use btleplug::api::{ ScanFilter};
+use btleplug::api::ScanFilter;
 use btleplug::{
     api::{BDAddr, Central, Manager as _},
     platform::{Adapter, Manager, Peripheral},
@@ -27,7 +27,6 @@ use tokio::sync::broadcast::Sender;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
-
 
 /// API for Bluetooth operations.
 #[async_trait]
@@ -79,6 +78,7 @@ pub trait AdapterDiscovery<A: BluetoothAdapterApi> {
 pub trait BluetoothPeripheralApi: Send + Sync {
     fn address(&self) -> BDAddr;
     async fn connect(&self) -> Result<()>;
+    #[allow(dead_code)]
     async fn disconnect(&self) -> Result<()>;
     async fn discover_services(&self) -> Result<()>;
     fn characteristics(&self) -> Result<Vec<Characteristic>>;
@@ -400,49 +400,164 @@ impl<A: BluetoothAdapterApi + Clone + AdapterDiscovery<A> + 'static> BluetoothAp
     }
 }
 #[cfg(test)]
-    mod tests {
-        use mockall::{mock, predicate::eq};
-        use tokio::sync::broadcast;
-        use anyhow::Result;
-        use crate::model::bluetooth::MockBluetoothModelApi;
+mod tests {
+    use crate::model::bluetooth::MockBluetoothModelApi;
+    use anyhow::Result;
+    use mockall::mock;
+    use tokio::sync::broadcast;
 
-        use super::*;
-        mock!{
-            Adapter{}
+    use super::*;
+    mock! {
+        Adapter{}
 
-            #[async_trait]
-            impl BluetoothAdapterApi for Adapter{
-                async fn start_scan(&self, filter: ScanFilter) -> Result<()>;
-                async fn stop_scan(&self) -> Result<()>;
-                async fn peripherals(&self) -> Result<Vec<Arc<dyn BluetoothPeripheralApi>>>;
-                async fn get_name(&self) -> Result<String>;
-            }
-
-            #[async_trait]
-            impl AdapterDiscovery<MockAdapter> for Adapter{
-                async fn discover_adapters() -> Result<Vec<MockAdapter>>;
-            }
-            impl Clone for Adapter{
-                fn clone(&self) -> Self;
-            }
+        #[async_trait]
+        impl BluetoothAdapterApi for Adapter {
+            async fn start_scan(&self, filter: ScanFilter) -> Result<()>;
+            async fn stop_scan(&self) -> Result<()>;
+            async fn peripherals(&self) -> Result<Vec<Arc<dyn BluetoothPeripheralApi>>>;
+            async fn get_name(&self) -> Result<String>;
         }
 
-        #[tokio::test]
-        async fn test_discover_adapters() {
-            let ctx = MockAdapter::discover_adapters_context();
-            ctx.expect().times(1..).returning(||{
-                let mut adapter = MockAdapter::new();
-                adapter.expect_get_name().times(1..).returning( ||Ok("Test Adapter".to_string()));
-                Ok(vec![adapter])
-            } );
-            let mut mock_model = MockBluetoothModelApi::new();
-            mock_model.expect_set_adapters().return_const(());
-
-            let (tx, _rx) = broadcast::channel(16);
-            let model = Arc::new(RwLock::new(mock_model));
-            let mut controller = BluetoothController::<MockAdapter>::new(model, tx);
-            controller.discover_adapters().await.unwrap();
+        #[async_trait]
+        impl AdapterDiscovery<MockAdapter> for Adapter {
+            async fn discover_adapters() -> Result<Vec<MockAdapter>>;
         }
-
-        
+        impl Clone for Adapter {
+            fn clone(&self) -> Self;
+        }
     }
+
+    #[tokio::test]
+    async fn test_discover_adapters() {
+        let ctx = MockAdapter::discover_adapters_context();
+        ctx.expect().times(1..).returning(|| {
+            let mut adapter = MockAdapter::new();
+            adapter
+                .expect_get_name()
+                .times(1..)
+                .returning(|| Ok("Test Adapter".to_string()));
+            Ok(vec![adapter])
+        });
+        let mut mock_model = MockBluetoothModelApi::new();
+        mock_model.expect_set_adapters().return_const(());
+
+        let (tx, _rx) = broadcast::channel(16);
+        let model = Arc::new(RwLock::new(mock_model));
+        let mut controller = BluetoothController::<MockAdapter>::new(model, tx);
+        controller.discover_adapters().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_select_adapter() {
+        let mut mock_model = MockBluetoothModelApi::new();
+        mock_model.expect_select_adapter().returning(|_x| Ok(()));
+        let (tx, _rx) = broadcast::channel(16);
+        let model = Arc::new(RwLock::new(mock_model));
+        let controller = BluetoothController::<MockAdapter>::new(model, tx);
+
+        let adapter_desc = AdapterDescriptor::new("Test Adapter".to_string());
+        controller.select_adapter(&adapter_desc).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_start_scan() {
+        let mut mock_adapter = MockAdapter::new();
+        mock_adapter.expect_start_scan().returning(|_| Ok(()));
+        mock_adapter
+            .expect_get_name()
+            .returning(|| Ok("Test Adapter".to_string()));
+        mock_adapter.expect_peripherals().returning(|| Ok(vec![]));
+        mock_adapter.expect_clone().returning(|| {
+            let mut adapter = MockAdapter::new();
+            adapter
+                .expect_get_name()
+                .times(1..)
+                .returning(|| Ok("Test Adapter".to_string()));
+            adapter
+        });
+
+        let mut mock_model = MockBluetoothModelApi::new();
+        mock_model.expect_is_scanning().return_const(false);
+        mock_model.expect_set_devices().return_const(());
+        mock_model.expect_set_adapters().return_const(());
+
+        let (tx, _rx) = broadcast::channel(16);
+        let model = Arc::new(RwLock::new(mock_model));
+        let mut controller = BluetoothController::<MockAdapter>::new(model.clone(), tx);
+        let desc = Uuid::new_v4();
+        let ad = AdapterDescriptor::new_with_uuid("Test Adapter".to_string(), desc);
+        controller.adapters.insert(desc, mock_adapter);
+        model
+            .write()
+            .await
+            .expect_get_selected_adapter()
+            .return_const(Some(ad));
+
+        controller.start_scan().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_stop_scan() {
+        let mut mock_adapter = MockAdapter::new();
+        mock_adapter.expect_stop_scan().returning(|| Ok(()));
+        mock_adapter
+            .expect_get_name()
+            .returning(|| Ok("Test Adapter".to_string()));
+        mock_adapter.expect_peripherals().returning(|| Ok(vec![]));
+        mock_adapter.expect_clone().returning(|| {
+            let mut adapter = MockAdapter::new();
+            adapter
+                .expect_get_name()
+                .times(1..)
+                .returning(|| Ok("Test Adapter".to_string()));
+            adapter
+        });
+
+        let mut mock_model = MockBluetoothModelApi::new();
+        mock_model.expect_is_scanning().return_const(true);
+        mock_model.expect_set_devices().return_const(());
+        mock_model.expect_set_adapters().return_const(());
+
+        let (tx, _rx) = broadcast::channel(16);
+        let model = Arc::new(RwLock::new(mock_model));
+        let mut controller = BluetoothController::<MockAdapter>::new(model.clone(), tx);
+        let desc = Uuid::new_v4();
+        let ad = AdapterDescriptor::new_with_uuid("Test Adapter".to_string(), desc);
+        controller.adapters.insert(desc, mock_adapter);
+        model
+            .write()
+            .await
+            .expect_get_selected_adapter()
+            .return_const(Some(ad));
+
+        controller.stop_scan().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_select_peripheral() {
+        let mut mock_model = MockBluetoothModelApi::new();
+        mock_model.expect_select_device().return_const(());
+
+        let (tx, _rx) = broadcast::channel(16);
+        let model = Arc::new(RwLock::new(mock_model));
+        let controller = BluetoothController::<MockAdapter>::new(model, tx);
+
+        let device_desc = DeviceDescriptor {
+            name: "Test Device".to_string(),
+            address: BDAddr::from_str_delim("00:11:22:33:44:55").unwrap(),
+        };
+        controller.select_peripheral(&device_desc).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_stop_listening() {
+        let mut mock_model = MockBluetoothModelApi::new();
+        mock_model.expect_set_listening().return_const(());
+
+        let (tx, _rx) = broadcast::channel(16);
+        let model = Arc::new(RwLock::new(mock_model));
+        let mut controller = BluetoothController::<MockAdapter>::new(model, tx);
+
+        controller.stop_listening().await.unwrap();
+    }
+}
