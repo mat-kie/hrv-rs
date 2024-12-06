@@ -12,6 +12,9 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fmt::Debug;
 use uuid::Uuid;
+#[cfg(test)]
+use mockall::automock;
+
 
 /// Helper macro to check if a specific bit is set in a byte.
 macro_rules! is_bit_set {
@@ -232,6 +235,7 @@ impl PartialOrd for AdapterDescriptor {
 /// - Managing Bluetooth adapters and their selection
 /// - Tracking discovered devices
 /// - Managing device scanning and connection states
+#[cfg_attr(test, automock)]
 pub trait BluetoothModelApi: Debug + Send + Sync {
     /// Gets the list of Bluetooth adapters as a vector of `(Name, UUID)` tuples.
     ///

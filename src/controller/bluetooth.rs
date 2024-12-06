@@ -9,14 +9,14 @@ use crate::model::bluetooth::{BluetoothModelApi, DeviceDescriptor, HeartrateMess
 use crate::model::storage::ModelHandle;
 use crate::{core::events::AppEvent, model::bluetooth::AdapterDescriptor};
 use async_trait::async_trait;
-use btleplug::api::{Peripheral as _, ScanFilter};
+use btleplug::api::{ ScanFilter};
 use btleplug::{
     api::{BDAddr, Central, Manager as _},
     platform::{Adapter, Manager, Peripheral},
 };
 
 use anyhow::{anyhow, Result};
-use btleplug::api::{Characteristic, PeripheralProperties, ValueNotification};
+use btleplug::api::{Characteristic, ValueNotification};
 use futures::stream::Stream;
 use futures::StreamExt;
 use log::{trace, warn};
@@ -27,6 +27,7 @@ use tokio::sync::broadcast::Sender;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
+
 
 /// API for Bluetooth operations.
 #[async_trait]
@@ -57,6 +58,7 @@ pub trait BluetoothApi: Send + Sync {
 }
 
 // Define a trait for the Bluetooth Adapter API
+//#[cfg_attr(test, automock)]
 #[async_trait]
 pub trait BluetoothAdapterApi: Send + Sync {
     async fn start_scan(&self, filter: ScanFilter) -> Result<()>;
@@ -72,6 +74,7 @@ pub trait AdapterDiscovery<A: BluetoothAdapterApi> {
 }
 
 // Define a trait for the Bluetooth Peripheral API
+//#[cfg_attr(test, automock)]
 #[async_trait]
 pub trait BluetoothPeripheralApi: Send + Sync {
     fn address(&self) -> BDAddr;
@@ -84,7 +87,7 @@ pub trait BluetoothPeripheralApi: Send + Sync {
     async fn get_name(&self) -> Result<String>;
 }
 
-#[async_trait::async_trait]
+#[async_trait]
 impl BluetoothAdapterApi for Adapter {
     async fn start_scan(&self, filter: ScanFilter) -> Result<()> {
         Central::start_scan(self, filter)
@@ -122,7 +125,7 @@ impl AdapterDiscovery<Adapter> for Adapter {
     }
 }
 
-#[async_trait::async_trait]
+#[async_trait]
 impl BluetoothPeripheralApi for Peripheral {
     fn address(&self) -> BDAddr {
         btleplug::api::Peripheral::address(self)
@@ -396,3 +399,50 @@ impl<A: BluetoothAdapterApi + Clone + AdapterDiscovery<A> + 'static> BluetoothAp
         Ok(())
     }
 }
+#[cfg(test)]
+    mod tests {
+        use mockall::{mock, predicate::eq};
+        use tokio::sync::broadcast;
+        use anyhow::Result;
+        use crate::model::bluetooth::MockBluetoothModelApi;
+
+        use super::*;
+        mock!{
+            Adapter{}
+
+            #[async_trait]
+            impl BluetoothAdapterApi for Adapter{
+                async fn start_scan(&self, filter: ScanFilter) -> Result<()>;
+                async fn stop_scan(&self) -> Result<()>;
+                async fn peripherals(&self) -> Result<Vec<Arc<dyn BluetoothPeripheralApi>>>;
+                async fn get_name(&self) -> Result<String>;
+            }
+
+            #[async_trait]
+            impl AdapterDiscovery<MockAdapter> for Adapter{
+                async fn discover_adapters() -> Result<Vec<MockAdapter>>;
+            }
+            impl Clone for Adapter{
+                fn clone(&self) -> Self;
+            }
+        }
+
+        #[tokio::test]
+        async fn test_discover_adapters() {
+            let ctx = MockAdapter::discover_adapters_context();
+            ctx.expect().times(1..).returning(||{
+                let mut adapter = MockAdapter::new();
+                adapter.expect_get_name().times(1..).returning( ||Ok("Test Adapter".to_string()));
+                Ok(vec![adapter])
+            } );
+            let mut mock_model = MockBluetoothModelApi::new();
+            mock_model.expect_set_adapters().return_const(());
+
+            let (tx, _rx) = broadcast::channel(16);
+            let model = Arc::new(RwLock::new(mock_model));
+            let mut controller = BluetoothController::<MockAdapter>::new(model, tx);
+            controller.discover_adapters().await.unwrap();
+        }
+
+        
+    }
