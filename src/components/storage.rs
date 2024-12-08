@@ -131,3 +131,57 @@ impl<
         Ok(())
     }
 }
+#[cfg(test)]
+mod tests {
+    use crate::components::measurement::MeasurementData;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn test_new_measurement() {
+        let mut storage = StorageComponent::<MeasurementData>::default();
+        assert!(storage.new_measurement().await.is_ok());
+        assert!(storage.get_active_measurement().await.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_store_recorded_measurement() {
+        let mut storage = StorageComponent::<MeasurementData>::default();
+        assert!(storage.new_measurement().await.is_ok());
+        assert!(storage.store_recorded_measurement().await.is_ok());
+        assert_eq!(storage.get_acquisitions().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_clear_storage() {
+        let mut storage = StorageComponent::<MeasurementData>::default();
+        assert!(storage.new_measurement().await.is_ok());
+        assert!(storage.store_recorded_measurement().await.is_ok());
+        assert!(storage.clear().await.is_ok());
+        assert_eq!(storage.get_acquisitions().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_store_and_load() {
+        let mut storage = StorageComponent::<MeasurementData>::default();
+        assert!(storage.new_measurement().await.is_ok());
+        assert!(storage.store_recorded_measurement().await.is_ok());
+
+        let path = PathBuf::from("test_measurements.json");
+        assert!(storage.store_to_file(path.clone()).await.is_ok());
+
+        let mut new_storage = StorageComponent::<MeasurementData>::default();
+        assert!(new_storage.load_from_file(path.clone()).await.is_ok());
+        assert_eq!(new_storage.get_acquisitions().len(), 1);
+
+        // Cleanup
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_recording_state() {
+        let mut storage = StorageComponent::<MeasurementData>::default();
+        assert!(storage.start_recording().await.is_ok());
+        assert!(storage.stop_recording().await.is_ok());
+    }
+}
