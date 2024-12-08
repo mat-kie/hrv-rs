@@ -33,3 +33,5 @@ mockall = "0.13.1"
 rand = "0.8.5"
 typetag = "0.2.18"
 anyhow = { version = "1.0.94", features = ["backtrace"] }
+rust-fsm = "0.7.0"
+event_bridge = "0.3.1"

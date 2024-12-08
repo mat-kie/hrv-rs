@@ -3,7 +3,7 @@
 //! This module defines the `ViewApi` trait, which is implemented by all views in the HRV analysis tool.
 //! It provides a standardized interface for rendering and updating views.
 
-use super::events::UiInputEvent;
+use crate::core::events::AppEvent;
 
 /// Trait defining the interface for application views.
 ///
@@ -17,7 +17,7 @@ pub trait ViewApi: Send {
     ///
     /// # Returns
     /// A result indicating success or failure.
-    fn render<F: Fn(UiInputEvent) + ?Sized>(
+    fn render<F: Fn(AppEvent) + ?Sized>(
         &mut self,
         publish: &F,
         ctx: &egui::Context,
