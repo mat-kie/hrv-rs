@@ -58,11 +58,6 @@ pub trait MeasurementModelApi: Debug + Send + Sync {
     /// A reference to the `HrvSessionData`.
     fn get_session_data(&self) -> &HrvSessionData;
 
-    /// Retrieves all heart rate messages with their elapsed time.
-    ///
-    /// # Returns
-    /// A reference to a slice of tuples containing `Duration` and `HeartrateMessage`.
-
     /// Retrieves the elapsed time since the start of the acquisition.
     ///
     /// # Returns
