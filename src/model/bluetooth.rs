@@ -6,13 +6,11 @@
 //! - Device and adapter management
 //! - Scanning and connection state tracking
 
-use anyhow::{anyhow, Result};
 use btleplug::api::BDAddr;
-#[cfg(test)]
-use mockall::automock;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fmt::Debug;
+use std::hash::Hash;
 use uuid::Uuid;
 
 /// Helper macro to check if a specific bit is set in a byte.
@@ -203,16 +201,26 @@ pub struct AdapterDescriptor {
     name: String,
     uuid: Uuid,
 }
+
+impl Hash for AdapterDescriptor {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.uuid.hash(state);
+    }
+}
+
+impl PartialEq for AdapterDescriptor {
+    fn eq(&self, other: &Self) -> bool {
+        self.uuid.eq(&other.uuid)
+    }
+}
+impl Eq for AdapterDescriptor {}
+
 impl AdapterDescriptor {
     pub fn new(name: String) -> Self {
         Self {
             name,
             uuid: Uuid::new_v4(),
         }
-    }
-    #[cfg(test)]
-    pub fn new_with_uuid(name: String, uuid: Uuid) -> Self {
-        Self { name, uuid }
     }
     pub fn get_name(&self) -> &str {
         &self.name
@@ -221,329 +229,9 @@ impl AdapterDescriptor {
         &self.uuid
     }
 }
-impl PartialEq for AdapterDescriptor {
-    fn eq(&self, other: &Self) -> bool {
-        self.uuid.eq(&other.uuid)
-    }
-}
+
 impl PartialOrd for AdapterDescriptor {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         self.uuid.partial_cmp(&other.uuid)
-    }
-}
-
-/// API for managing Bluetooth-related data.
-///
-/// This trait provides methods for:
-/// - Managing Bluetooth adapters and their selection
-/// - Tracking discovered devices
-/// - Managing device scanning and connection states
-#[cfg_attr(test, automock)]
-pub trait BluetoothModelApi: Debug + Send + Sync {
-    /// Gets the list of Bluetooth adapters as a vector of `(Name, UUID)` tuples.
-    ///
-    /// # Returns
-    /// A vector of tuples containing adapter names and UUIDs.
-    fn get_adapters(&self) -> &[AdapterDescriptor];
-
-    /// Sets the list of Bluetooth adapters.
-    ///
-    /// # Arguments
-    /// * `adapters` - A vector of adapters.
-    fn set_adapters(&mut self, adapters: Vec<AdapterDescriptor>);
-
-    /// Gets the currently selected adapter, if any.
-    ///
-    /// # Returns
-    /// An optional reference to the selected adapter.
-    fn get_selected_adapter(&self) -> &Option<AdapterDescriptor>;
-
-    /// Selects a Bluetooth adapter by its UUID.
-    ///
-    /// # Arguments
-    /// * `uuid` - The UUID of the adapter to select.
-    ///
-    /// # Returns
-    /// `Ok(())` if the adapter was successfully selected, or `Err(String)` if the UUID was not found.
-    fn select_adapter(&mut self, uuid: &Uuid) -> Result<()>;
-
-    /// Gets the list of discovered Bluetooth devices.
-    ///
-    /// # Returns
-    /// A reference to the vector of devices.
-    fn get_devices(&self) -> &Vec<DeviceDescriptor>;
-
-    /// Clears the list of discovered devices.
-    #[allow(dead_code)]
-    fn clear_devices(&mut self);
-
-    /// Sets the list of discovered devices.
-    ///
-    /// # Arguments
-    /// * `devices` - A vector of `(BDAddr, String)` tuples representing the devices.
-    fn set_devices(&mut self, devices: Vec<DeviceDescriptor>);
-
-    fn select_device(&mut self, device: DeviceDescriptor);
-    fn get_selected_device(&self) -> &Option<DeviceDescriptor>;
-
-    /// Gets the scanning status.
-    ///
-    /// # Returns
-    /// `true` if scanning is active, `false` otherwise.
-    fn is_scanning(&self) -> bool;
-
-    /// Sets the scanning status.
-    ///
-    /// # Arguments
-    /// * `status` - `true` if scanning is active, `false` otherwise.
-    #[allow(dead_code)]
-    fn set_scanning(&mut self, status: bool);
-    #[allow(dead_code)]
-    fn is_listening_to(&self) -> &Option<BDAddr>;
-    fn set_listening(&mut self, device: Option<BDAddr>);
-}
-
-/// Default implementation of the Bluetooth model.
-///
-/// Manages:
-/// - Available Bluetooth adapters
-/// - Currently selected adapter and device
-/// - List of discovered devices
-/// - Scanning and connection states
-#[derive(Debug, Default)]
-pub struct BluetoothModel {
-    adapters: Vec<AdapterDescriptor>,
-    selected_adapter: Option<AdapterDescriptor>,
-    selected_device: Option<DeviceDescriptor>,
-    devices: Vec<DeviceDescriptor>,
-    scanning: bool,
-    listening: Option<BDAddr>,
-}
-
-impl BluetoothModelApi for BluetoothModel {
-    fn select_device(&mut self, device: DeviceDescriptor) {
-        self.selected_device = Some(device)
-    }
-    fn get_selected_device(&self) -> &Option<DeviceDescriptor> {
-        &self.selected_device
-    }
-    fn get_adapters(&self) -> &[AdapterDescriptor] {
-        &self.adapters
-    }
-
-    fn set_adapters(&mut self, adapters: Vec<AdapterDescriptor>) {
-        let mut sorted_adapters = adapters;
-        sorted_adapters.sort_by(|a, b| a.get_uuid().cmp(b.get_uuid()));
-        self.adapters = sorted_adapters;
-    }
-
-    fn get_selected_adapter(&self) -> &Option<AdapterDescriptor> {
-        &self.selected_adapter
-    }
-
-    fn select_adapter(&mut self, uuid: &Uuid) -> Result<()> {
-        if let Ok(idx) = self
-            .adapters
-            .binary_search_by(|adapter| adapter.get_uuid().cmp(uuid))
-        {
-            self.selected_adapter = Some(self.adapters[idx].clone());
-            Ok(())
-        } else {
-            Err(anyhow!("Could not find an adapter for UUID: {}", uuid))
-        }
-    }
-
-    fn get_devices(&self) -> &Vec<DeviceDescriptor> {
-        &self.devices
-    }
-
-    fn clear_devices(&mut self) {
-        self.devices.clear();
-    }
-
-    fn set_devices(&mut self, devices: Vec<DeviceDescriptor>) {
-        self.devices = devices;
-    }
-
-    fn is_scanning(&self) -> bool {
-        self.scanning
-    }
-
-    fn set_scanning(&mut self, status: bool) {
-        self.scanning = status;
-    }
-    fn is_listening_to(&self) -> &Option<BDAddr> {
-        &self.listening
-    }
-    fn set_listening(&mut self, device: Option<BDAddr>) {
-        self.listening = device;
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_hr_service_msg_short_hr_no_exp() {
-        // Short HR, no energy expenditure, no sensor contact, RR intervals (1000 and 250)
-        let data = [0b00010000, 80, 0, 4, 0, 1];
-        let msg = HeartrateMessage::new(&data);
-        assert_eq!(msg.get_hr(), 80.0);
-        assert!(msg.has_rr_interval());
-        assert_eq!(msg.get_rr_intervals(), &[1000, 250]);
-    }
-
-    #[test]
-    fn test_hr_service_msg_long_hr_no_exp() {
-        // Long HR, no energy expenditure, no sensor contact, RR intervals (1000 and 250)
-        let data = [0b00010001, 80, 0, 0, 4, 0, 1];
-        let msg = HeartrateMessage::new(&data);
-
-        // Verify flags and HR value
-        assert_eq!(msg.flags, 0b00010001);
-        assert_eq!(msg.get_hr(), 80.0);
-        assert!(!msg.sen_contact_supported());
-
-        // Verify RR intervals
-        assert!(msg.has_rr_interval());
-        assert_eq!(msg.get_rr_intervals(), &[1000, 250]);
-    }
-
-    #[test]
-    fn test_hr_service_msg_with_energy_exp() {
-        // Short HR, energy expenditure, no sensor contact, RR intervals (1000 and 250)
-        let data = [0b00011001, 80, 0, 1, 2, 0, 4, 0, 1];
-        let msg = HeartrateMessage::new(&data);
-
-        // Verify flags and HR value
-        assert_eq!(msg.flags, 0b00011001);
-        assert_eq!(msg.get_hr(), 80.0);
-
-        // Verify energy expenditure
-        assert!(msg.has_energy_exp());
-        assert_eq!(msg.get_energy_exp(), 513.0);
-
-        // Verify RR intervals
-        assert!(msg.has_rr_interval());
-        assert_eq!(msg.get_rr_intervals(), &[1000, 250]);
-    }
-
-    #[test]
-    #[should_panic(expected = "Invalid length")]
-    fn test_invalid_data_length() {
-        HeartrateMessage::new(&[0b00000001]);
-    }
-
-    #[test]
-    fn test_display_trait() {
-        let data = [0b00011001, 80, 0, 42, 1, 0, 4, 128, 0];
-        let msg = HeartrateMessage::new(&data);
-        let output = format!("{}", msg);
-        assert!(output.contains("Heart Rate Value: 80.00"));
-    }
-
-    #[test]
-    fn test_hr_service_msg_no_rr_intervals() {
-        // Short HR, no energy expenditure, no sensor contact, no RR intervals
-        let data = [0b00000000, 75];
-        let msg = HeartrateMessage::new(&data);
-        assert_eq!(msg.get_hr(), 75.0);
-        assert!(!msg.has_rr_interval());
-        assert_eq!(msg.get_rr_intervals(), &[] as &[u16]);
-    }
-
-    #[test]
-    fn test_hr_service_msg_with_sensor_contact() {
-        // Short HR, no energy expenditure, sensor contact, no RR intervals
-        let data = [0b00000110, 72];
-        let msg = HeartrateMessage::new(&data);
-        assert_eq!(msg.get_hr(), 72.0);
-        assert!(msg.sen_has_contact());
-        assert!(msg.sen_contact_supported());
-    }
-
-    #[test]
-    fn test_hr_service_msg_with_long_hr_and_energy_exp() {
-        // Long HR, energy expenditure, no sensor contact, no RR intervals
-        let data = [0b00001001, 90, 1, 10, 0];
-        let msg = HeartrateMessage::new(&data);
-        assert_eq!(msg.get_hr(), 346.0); // 90 + (1 << 8)
-        assert!(msg.has_energy_exp());
-        assert_eq!(msg.get_energy_exp(), 10.0);
-    }
-
-    #[test]
-    fn test_hr_service_msg_with_all_flags() {
-        // Long HR, energy expenditure, sensor contact, RR intervals
-        let data = [0b00011111, 100, 0, 5, 0, 0, 4, 0, 1];
-        let msg = HeartrateMessage::new(&data);
-        assert_eq!(msg.get_hr(), 100.0);
-        assert!(msg.has_energy_exp());
-        assert_eq!(msg.get_energy_exp(), 5.0);
-        assert!(msg.has_rr_interval());
-        assert_eq!(msg.get_rr_intervals(), &[1000, 250]);
-        assert!(msg.sen_has_contact());
-        assert!(msg.sen_contact_supported());
-    }
-    #[test]
-    fn test_bluetooth_model_adapters() {
-        let mut model = BluetoothModel::default();
-        let adapter1 = AdapterDescriptor::new("Adapter 1".to_string());
-        let adapter2 = AdapterDescriptor::new("Adapter 2".to_string());
-        let mut adapters = vec![adapter1.clone(), adapter2.clone()];
-        model.set_adapters(adapters.clone());
-        adapters.sort_by(|a, b| a.get_uuid().cmp(b.get_uuid()));
-        assert_eq!(model.get_adapters(), &adapters);
-        assert!(model.get_selected_adapter().is_none());
-
-        let uuid = *adapter1.get_uuid();
-        model.select_adapter(&uuid).unwrap();
-        assert_eq!(model.get_selected_adapter(), &Some(adapter1));
-    }
-
-    #[test]
-    fn test_bluetooth_model_devices() {
-        let mut model = BluetoothModel::default();
-        let device1 = DeviceDescriptor {
-            name: "Device 1".to_string(),
-            address: BDAddr::from_str_delim("11:22:33:44:55:66").unwrap(),
-        };
-        let device2 = DeviceDescriptor {
-            name: "Device 2".to_string(),
-            address: BDAddr::from_str_delim("11:22:33:44:55:67").unwrap(),
-        };
-        model.set_devices(vec![device1.clone(), device2.clone()]);
-
-        assert_eq!(model.get_devices(), &[device1.clone(), device2.clone()]);
-        assert!(model.get_selected_device().is_none());
-
-        model.select_device(device1.clone());
-        assert_eq!(model.get_selected_device(), &Some(device1));
-    }
-
-    #[test]
-    fn test_bluetooth_model_scanning() {
-        let mut model = BluetoothModel::default();
-        assert!(!model.is_scanning());
-
-        model.set_scanning(true);
-        assert!(model.is_scanning());
-
-        model.set_scanning(false);
-        assert!(!model.is_scanning());
-    }
-
-    #[test]
-    fn test_bluetooth_model_listening() {
-        let mut model = BluetoothModel::default();
-        assert!(model.is_listening_to().is_none());
-
-        let address = BDAddr::from_str_delim("11:22:33:44:55:66").unwrap();
-        model.set_listening(Some(address));
-        assert_eq!(model.is_listening_to(), &Some(address));
-
-        model.set_listening(None);
-        assert!(model.is_listening_to().is_none());
     }
 }

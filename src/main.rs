@@ -6,16 +6,15 @@
 //! structured using a modular, event-driven MVC architecture.
 
 use btleplug::platform::Adapter;
-use controller::{
-    acquisition::AcquisitionController, application::AppController, bluetooth::BluetoothController,
-};
+
+use components::application::AppController;
+use components::bluetooth::BluetoothComponent;
+use components::measurement::MeasurementData;
+use components::storage::StorageComponent;
 use eframe::NativeOptions;
 
-use model::storage::StorageModel;
-use model::{acquisition::AcquisitionModel, bluetooth::BluetoothModel};
-use std::sync::Arc;
 use tokio::runtime::Runtime;
-use tokio::sync::{broadcast, RwLock};
+use tokio::sync::broadcast;
 
 /// Core utilities and traits used throughout the application.
 mod core {
@@ -23,18 +22,22 @@ mod core {
     pub mod constants;
     /// Event system for inter-module communication.
     pub mod events;
-    /// Trait definitions for views.
-    pub mod view_trait;
 }
 
+mod api {
+    pub mod controller;
+    pub mod model;
+    pub mod view;
+}
 /// Controllers managing the application's logic.
-mod controller {
-    /// Manages data acquisition from BLE devices.
-    pub mod acquisition;
+mod components {
     /// Entry point controller for initializing and orchestrating modules.
     pub mod application;
     /// Handles communication with BLE devices.
     pub mod bluetooth;
+    pub mod measurement;
+    /// Manages data acquisition from BLE devices.
+    pub mod storage;
 }
 
 /// Mathematical utilities for HRV analysis.
@@ -45,14 +48,11 @@ mod math {
 
 /// Data models representing the application's domain.
 mod model {
-    /// Model for acquisition of HRV and raw data.
-    pub mod acquisition;
+
     /// Model for managing Bluetooth communication.
     pub mod bluetooth;
     /// Model for HRV-related data storage and processing.
     pub mod hrv;
-    /// Model for general data storage.
-    pub mod storage;
 }
 
 /// UI-related components for the application.
@@ -87,21 +87,16 @@ fn main() {
     let (event_bus, _) = broadcast::channel(16);
 
     // Shared state for Bluetooth model.
-    let bluetooth_model = Arc::new(RwLock::new(BluetoothModel::default()));
+    let bluetooth = BluetoothComponent::<Adapter>::new(event_bus.clone());
     // Shared state for data storage model.
-    let storage = Arc::new(RwLock::new(StorageModel::<AcquisitionModel>::default()));
+    let storage = StorageComponent::<MeasurementData>::default();
 
+    let app = AppController::new(bluetooth, storage, event_bus.clone());
     // Start the eframe application with the main view manager.
     eframe::run_native(
         "Hrv-rs",
         NativeOptions::default(),
         Box::new(|cc| {
-            let app = AppController::new(
-                BluetoothController::<Adapter>::new(bluetooth_model, event_bus.clone()),
-                AcquisitionController::new(storage.clone(), event_bus.clone()),
-                storage,
-                event_bus,
-            );
             let res = Box::new(app.get_viewmanager());
             tokio::spawn(app.event_handler(cc.egui_ctx.clone()));
             Ok(res)

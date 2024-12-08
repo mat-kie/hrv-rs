@@ -3,17 +3,24 @@
 //! This module provides the view layer for visualizing HRV (Heart Rate Variability) analysis results.
 //! It includes structures and methods for rendering statistical data, charts, and user interface components.
 
-use crate::{
-    core::{events::UiInputEvent, view_trait::ViewApi},
-    model::{acquisition::AcquisitionModelApi, bluetooth::BluetoothModelApi, storage::ModelHandle},
-};
 use eframe::egui;
 use egui::Color32;
 use egui_plot::{Legend, Plot, Points};
 use std::ops::RangeInclusive;
 use time::Duration;
 
-pub fn render_stats(ui: &mut egui::Ui, model: &dyn AcquisitionModelApi, hr: f64) {
+use crate::{
+    api::{
+        controller::OutlierFilter,
+        model::{BluetoothModelApi, MeasurementModelApi, ModelHandle},
+        view::ViewApi,
+    },
+    core::events::{
+        AppEvent, BluetoothEvent, MeasurementEvent, RecordingEvent, StateChangeEvent, StorageEvent,
+    },
+};
+
+pub fn render_stats(ui: &mut egui::Ui, model: &dyn MeasurementModelApi, hr: f64) {
     ui.heading("Statistics");
     egui::Grid::new("stats grid").num_columns(2).show(ui, |ui| {
         let desc = egui::Label::new("Heartrate: ");
@@ -53,7 +60,7 @@ pub fn render_stats(ui: &mut egui::Ui, model: &dyn AcquisitionModelApi, hr: f64)
     });
 }
 
-pub fn render_time_series(ui: &mut egui::Ui, model: &dyn AcquisitionModelApi) {
+pub fn render_time_series(ui: &mut egui::Ui, model: &dyn MeasurementModelApi) {
     let plot: Plot<'_> = Plot::new("Time series").legend(Legend::default());
 
     plot.show(ui, |plot_ui| {
@@ -80,7 +87,7 @@ pub fn render_time_series(ui: &mut egui::Ui, model: &dyn AcquisitionModelApi) {
     });
 }
 
-pub fn render_poincare_plot(ui: &mut egui::Ui, model: &dyn AcquisitionModelApi) {
+pub fn render_poincare_plot(ui: &mut egui::Ui, model: &dyn MeasurementModelApi) {
     let plot = Plot::new("Poincare Plot")
         .legend(Legend::default())
         .data_aspect(1.0);
@@ -96,7 +103,7 @@ pub fn render_poincare_plot(ui: &mut egui::Ui, model: &dyn AcquisitionModelApi) 
     });
 }
 
-pub fn render_bluetooth<F: Fn(UiInputEvent) + ?Sized>(
+pub fn render_bluetooth<F: Fn(AppEvent) + ?Sized>(
     ui: &mut egui::Ui,
     publish: &F,
     model: &dyn BluetoothModelApi,
@@ -122,7 +129,9 @@ pub fn render_bluetooth<F: Fn(UiInputEvent) + ?Sized>(
                         )
                         .clicked()
                     {
-                        publish(UiInputEvent::SelectAdapter(adapter.clone()));
+                        publish(AppEvent::Bluetooth(BluetoothEvent::SelectAdapter(
+                            adapter.clone(),
+                        )));
                     }
                 }
             });
@@ -138,7 +147,8 @@ pub fn render_bluetooth<F: Fn(UiInputEvent) + ?Sized>(
                     .map_or(Default::default(), |a| a.name.to_owned()),
             )
             .show_ui(ui, |ui| {
-                for device in model.get_devices() {
+                let dlock = model.get_devices().blocking_read();
+                for device in dlock.iter() {
                     if ui
                         .selectable_label(
                             current
@@ -148,30 +158,34 @@ pub fn render_bluetooth<F: Fn(UiInputEvent) + ?Sized>(
                         )
                         .clicked()
                     {
-                        publish(UiInputEvent::SelectPeripheral(device.clone()));
+                        publish(AppEvent::Bluetooth(BluetoothEvent::SelectPeripheral(
+                            device.clone(),
+                        )));
                     }
                 }
             });
     });
 }
 
-pub fn render_filter_params<F: Fn(UiInputEvent)>(
+pub fn render_filter_params<F: Fn(AppEvent)>(
     ui: &mut egui::Ui,
     publish: &F,
-    model: &dyn AcquisitionModelApi,
+    model: &dyn MeasurementModelApi,
 ) {
     ui.heading("Filter parameters:");
     egui::Grid::new("a grid").num_columns(2).show(ui, |ui| {
         let mut seconds = model
             .get_stats_window()
-            .unwrap_or(Duration::minutes(5))
+            .unwrap_or(&Duration::minutes(5))
             .as_seconds_f64();
         let desc = egui::Label::new("time window [s]");
         ui.add(desc);
         let slider = egui::Slider::new(&mut seconds, RangeInclusive::new(0.0, 600.0));
         if ui.add(slider).changed() {
             if let Some(new_duration) = Duration::checked_seconds_f64(seconds) {
-                publish(UiInputEvent::TimeWindowChanged(new_duration));
+                publish(AppEvent::Measurement(MeasurementEvent::SetStatsWindow(
+                    new_duration,
+                )));
             }
         }
         ui.end_row();
@@ -180,7 +194,12 @@ pub fn render_filter_params<F: Fn(UiInputEvent)>(
         ui.add(desc);
         let slider = egui::Slider::new(&mut outlier_value, RangeInclusive::new(0.1, 400.0));
         if ui.add(slider).changed() {
-            publish(UiInputEvent::OutlierFilterChanged(outlier_value));
+            publish(AppEvent::Measurement(MeasurementEvent::SetOutlierFilter(
+                OutlierFilter::MovingMAD {
+                    parameter: outlier_value,
+                    _window: 5,
+                },
+            )));
         }
         ui.end_row();
     });
@@ -190,7 +209,7 @@ pub fn render_filter_params<F: Fn(UiInputEvent)>(
 /// Represents the view for visualizing HRV analysis results, including statistics and charts.
 pub struct AcquisitionView {
     /// Shared access to the runtime HRV data model.
-    model: ModelHandle<dyn AcquisitionModelApi>,
+    model: ModelHandle<dyn MeasurementModelApi>,
     bt_model: ModelHandle<dyn BluetoothModelApi>,
 }
 
@@ -203,27 +222,29 @@ impl AcquisitionView {
     /// # Returns
     /// A new `HrvView` instance.
     pub fn new(
-        model: ModelHandle<dyn AcquisitionModelApi>,
+        model: ModelHandle<dyn MeasurementModelApi>,
         bt_model: ModelHandle<dyn BluetoothModelApi>,
     ) -> Self {
         Self { model, bt_model }
     }
 
-    fn render_acq<F: Fn(UiInputEvent)>(&self, ui: &mut egui::Ui, publish: &F) {
+    fn render_acq<F: Fn(AppEvent)>(&self, ui: &mut egui::Ui, publish: &F) {
         ui.heading("Acquisition");
         ui.horizontal(|ui| {
             if ui.button("start").clicked() {
-                publish(UiInputEvent::AcquisitionStartReq);
+                publish(AppEvent::Recording(RecordingEvent::StartRecording));
             }
             if ui.button("stop").clicked() {
-                publish(UiInputEvent::AcquisitionStopReq);
+                publish(AppEvent::Recording(RecordingEvent::StopRecording));
             }
             if ui.button("discard").clicked() {
-                publish(UiInputEvent::AcquisitionStopReq);
-                publish(UiInputEvent::DiscardAcquisition);
+                publish(AppEvent::Recording(RecordingEvent::StopRecording));
+                publish(AppEvent::AppState(StateChangeEvent::InitialState));
             }
             if ui.button("Save").clicked() {
-                publish(UiInputEvent::StoreAcquisition);
+                publish(AppEvent::Recording(RecordingEvent::StopRecording));
+                publish(AppEvent::Storage(StorageEvent::StoreRecordedMeasurement));
+                publish(AppEvent::AppState(StateChangeEvent::InitialState));
             }
         });
     }
@@ -239,16 +260,16 @@ impl ViewApi for AcquisitionView {
     ///
     /// # Returns
     /// An optional `AppEvent` triggered by user interactions.
-    fn render<F: Fn(UiInputEvent) + ?Sized>(
+    fn render<F: Fn(AppEvent) + ?Sized>(
         &mut self,
         publish: &F,
         ctx: &egui::Context,
     ) -> Result<(), String> {
+        let model = self.model.blocking_read();
+        let bt_model = self.bt_model.blocking_read();
         // Extract HRV statistics and Poincare plot points from the model.
 
         // Render the left panel with HRV statistics.
-        let model = self.model.blocking_read();
-        let bt_model = self.bt_model.blocking_read();
         egui::SidePanel::left("left_sidebar").show(ctx, |ui| {
             render_bluetooth(ui, publish, &*bt_model);
             ui.separator();

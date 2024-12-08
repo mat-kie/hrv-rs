@@ -22,15 +22,11 @@ use tokio::{
 };
 
 use crate::{
-    core::{
-        events::{AppEvent, UiInputEvent},
-        view_trait::ViewApi,
+    api::{
+        model::{BluetoothModelApi, MeasurementModelApi, ModelHandle, StorageModelApi},
+        view::ViewApi,
     },
-    model::{
-        acquisition::{AcquisitionModel, AcquisitionModelApi},
-        bluetooth::BluetoothModelApi,
-        storage::{ModelHandle, StorageModel},
-    },
+    core::events::AppEvent,
 };
 
 use super::{acquisition::AcquisitionView, overview::StorageView};
@@ -41,11 +37,16 @@ use super::{acquisition::AcquisitionView, overview::StorageView};
 #[derive(Clone, Debug)]
 pub enum ViewState {
     /// The overview view displaying stored acquisitions.
-    Overview(ModelHandle<StorageModel<AcquisitionModel>>),
+    Overview(
+        (
+            ModelHandle<dyn StorageModelApi>,
+            Option<ModelHandle<dyn MeasurementModelApi>>,
+        ),
+    ),
     /// The acquisition view for real-time data collection.
     Acquisition(
         (
-            ModelHandle<dyn AcquisitionModelApi>,
+            ModelHandle<dyn MeasurementModelApi>,
             ModelHandle<dyn BluetoothModelApi>,
         ),
     ),
@@ -58,7 +59,7 @@ enum View {
     /// Empty state when no view is active.
     Empty,
     /// The overview view instance.
-    Overview(StorageView<StorageModel<AcquisitionModel>>),
+    Overview(StorageView),
     /// The acquisition view instance.
     Acquisition(AcquisitionView),
 }
@@ -72,7 +73,7 @@ impl ViewApi for View {
     ///
     /// # Returns
     /// `Result<(), String>` indicating success or an error message.
-    fn render<F: Fn(UiInputEvent) + ?Sized>(
+    fn render<F: Fn(AppEvent) + ?Sized>(
         &mut self,
         publish: &F,
         ctx: &egui::Context,
@@ -100,8 +101,8 @@ impl From<ViewState> for View {
             ViewState::Acquisition((model, bt_model)) => {
                 View::Acquisition(AcquisitionView::new(model, bt_model))
             }
-            ViewState::Overview(model) => {
-                View::Overview(StorageView::<StorageModel<AcquisitionModel>>::new(model))
+            ViewState::Overview((model, measurement)) => {
+                View::Overview(StorageView::new(model, measurement))
             }
         }
     }
@@ -148,8 +149,8 @@ impl ViewManager {
     ///
     /// # Arguments
     /// * `event` - The `UiInputEvent` to publish.
-    fn publish(&self, event: UiInputEvent) {
-        if let Err(e) = self.e_tx.send(AppEvent::UiInput(event)) {
+    fn publish(&self, event: AppEvent) {
+        if let Err(e) = self.e_tx.send(event) {
             error!("View failed to send event: {}", e.to_string())
         }
     }
