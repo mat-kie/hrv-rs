@@ -106,26 +106,26 @@ where
         peripheral_address: BDAddr,
         tx: Sender<AppEvent>,
     ) -> Result<JoinHandle<Result<()>>> {
-        let peripherals = adapter.peripherals().await?;
-        let cheststrap = peripherals
-            .into_iter()
-            .find(|p| p.address() == peripheral_address)
-            .ok_or(anyhow!("Peripheral not found"))?;
-        cheststrap.connect().await?;
-
-        cheststrap.discover_services().await?;
-
-        let char = cheststrap
-            .characteristics()
-            .iter()
-            .find(|c| c.uuid == HEARTRATE_MEASUREMENT_UUID)
-            .ok_or(anyhow!("Peripheral has no Heartrate attribute"))?
-            .clone();
-
-        cheststrap.subscribe(&char).await?;
-
-        let mut notification_stream = cheststrap.notifications().await?;
         let fut = tokio::spawn(async move {
+            let peripherals = adapter.peripherals().await?;
+            let cheststrap = peripherals
+                .into_iter()
+                .find(|p| p.address() == peripheral_address)
+                .ok_or(anyhow!("Peripheral not found"))?;
+            cheststrap.connect().await?;
+
+            cheststrap.discover_services().await?;
+
+            let char = cheststrap
+                .characteristics()
+                .iter()
+                .find(|c| c.uuid == HEARTRATE_MEASUREMENT_UUID)
+                .ok_or(anyhow!("Peripheral has no Heartrate attribute"))?
+                .clone();
+
+            cheststrap.subscribe(&char).await?;
+
+            let mut notification_stream = cheststrap.notifications().await?;
             while let Some(data) = notification_stream.next().await {
                 if data.value.len() < 2
                     || tx

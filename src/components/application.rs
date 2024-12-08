@@ -85,7 +85,6 @@ impl<
                 lck.new_measurement().await?;
                 let m: ModelHandle<dyn MeasurementModelApi> = lck
                     .get_active_measurement()
-                    .await
                     .clone()
                     .ok_or(anyhow!("No active measurement"))?;
                 let bm: ModelHandle<dyn BluetoothModelApi> = self.ble_controller.clone();
@@ -115,7 +114,7 @@ impl<
             }
             AppEvent::Measurement(event) => {
                 let mut lck = self.acq_controller.write().await;
-                if let Some(measurement) = lck.get_active_measurement().await {
+                if let Some(measurement) = lck.get_active_measurement() {
                     let mut lck = measurement.write().await;
                     event.forward_to(&mut *lck).await
                 } else {
@@ -235,9 +234,8 @@ mod tests {
             fn get_acquisitions(&self) -> &[ModelHandle<dyn MeasurementModelApi>];
         }
 
-        #[async_trait]
         impl StorageApi<MeasurementData> for Storage{
-            async fn get_active_measurement(&mut self) -> &Option<Arc<RwLock<MeasurementData>>>;
+            fn get_active_measurement(&mut self) -> &Option<Arc<RwLock<MeasurementData>>>;
         }
 
         #[async_trait]

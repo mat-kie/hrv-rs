@@ -98,11 +98,10 @@ impl<
     }
 }
 
-#[async_trait]
 impl<MT: MeasurementApi + Serialize + DeserializeOwned + Clone + Default> StorageApi<MT>
     for StorageComponent<MT>
 {
-    async fn get_active_measurement(&mut self) -> &Option<Arc<RwLock<MT>>> {
+    fn get_active_measurement(&mut self) -> &Option<Arc<RwLock<MT>>> {
         &self.active_measurement
     }
 }
@@ -141,7 +140,7 @@ mod tests {
     async fn test_new_measurement() {
         let mut storage = StorageComponent::<MeasurementData>::default();
         assert!(storage.new_measurement().await.is_ok());
-        assert!(storage.get_active_measurement().await.is_some());
+        assert!(storage.get_active_measurement().is_some());
     }
 
     #[tokio::test]

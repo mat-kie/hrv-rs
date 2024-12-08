@@ -81,12 +81,11 @@ pub trait StorageEventApi {
 ///
 /// * `MT` - A type that implements the `MeasurementModelApi` trait.
 ///
-#[async_trait]
 pub trait StorageApi<MT: MeasurementModelApi> {
     /// Get the active measurement.
     ///
     /// This method returns a reference to the active measurement, if any.
-    async fn get_active_measurement(&mut self) -> &Option<Arc<RwLock<MT>>>;
+    fn get_active_measurement(&mut self) -> &Option<Arc<RwLock<MT>>>;
 }
 
 /// MeasurementApi trait
