@@ -20,7 +20,6 @@ pub enum StorageEvent {
     Clear,
     LoadFromFile(PathBuf),
     StoreToFile(PathBuf),
-    StoreRecordedMeasurement,
 }
 
 #[derive(Debug, Clone, EventBridge)]
@@ -53,6 +52,8 @@ pub enum BluetoothEvent {
 
 #[derive(Debug, Clone)]
 pub enum StateChangeEvent {
+    DiscardRecording,
+    StoreRecording,
     ToRecordingState,
     InitialState,
     SelectMeasurement(usize),

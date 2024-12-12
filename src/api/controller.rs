@@ -60,16 +60,6 @@ pub trait StorageEventApi {
     ///
     /// * `path` - A `PathBuf` representing the file path to which to store data.
     async fn store_to_file(&mut self, path: PathBuf) -> Result<()>;
-
-    /// Store the recorded measurement.
-    ///
-    /// This method handles the storage of a new measurement.
-    async fn new_measurement(&mut self) -> Result<()>;
-
-    /// Store the recorded measurement.
-    ///
-    /// This method handles the storage of the recorded measurement.
-    async fn store_recorded_measurement(&mut self) -> Result<()>;
 }
 
 /// StorageApi trait
@@ -84,8 +74,10 @@ pub trait StorageEventApi {
 pub trait StorageApi<MT: MeasurementModelApi> {
     /// Get the active measurement.
     ///
-    /// This method returns a reference to the active measurement, if any.
-    fn get_active_measurement(&mut self) -> &Option<Arc<RwLock<MT>>>;
+    /// This method returns a reference to the measurement at index.
+    fn get_measurement(&self, index: usize) -> Result<Arc<RwLock<MT>>>;
+
+    fn store_measurement(&mut self, measurement: Arc<RwLock<MT>>) -> Result<()>;
 }
 
 /// MeasurementApi trait

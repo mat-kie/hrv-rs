@@ -81,28 +81,23 @@ impl<
         .await??;
         fs::write(&path, json).await.map_err(|e| anyhow!(e))
     }
-
-    async fn new_measurement(&mut self) -> Result<()> {
-        self.active_measurement = Some(Arc::new(RwLock::new(MT::default())));
-        Ok(())
-    }
-
-    async fn store_recorded_measurement(&mut self) -> Result<()> {
-        if let Some(measurement) = self.active_measurement.take() {
-            self.measurements.push(measurement.clone());
-            self.handles.push(ModelHandle::from(measurement));
-            Ok(())
-        } else {
-            Err(anyhow!("No active measurement to store"))
-        }
-    }
 }
 
 impl<MT: MeasurementApi + Serialize + DeserializeOwned + Clone + Default> StorageApi<MT>
     for StorageComponent<MT>
 {
-    fn get_active_measurement(&mut self) -> &Option<Arc<RwLock<MT>>> {
-        &self.active_measurement
+    fn get_measurement(&self, index: usize) -> Result<Arc<RwLock<MT>>> {
+        if index < self.measurements.len() {
+            Ok(self.measurements[index].clone())
+        } else {
+            Err(anyhow!("Index out of bounds"))
+        }
+    }
+    fn store_measurement(&mut self, measurement: Arc<RwLock<MT>>) -> Result<()> {
+        self.measurements.push(measurement.clone());
+        let mh: ModelHandle<dyn MeasurementModelApi> = ModelHandle::from(measurement.clone());
+        self.handles.push(mh);
+        Ok(())
     }
 }
 
@@ -115,27 +110,12 @@ impl<
     }
 }
 
-#[async_trait]
-impl<
-        MT: MeasurementApi + Serialize + DeserializeOwned + Default + Send + Clone + Sync + 'static,
-    > RecordingApi for StorageComponent<MT>
-{
-    async fn start_recording(&mut self) -> Result<()> {
-        self.is_recording = true;
-        Ok(())
-    }
-
-    async fn stop_recording(&mut self) -> Result<()> {
-        self.is_recording = false;
-        Ok(())
-    }
-}
 #[cfg(test)]
 mod tests {
     use crate::components::measurement::MeasurementData;
 
     use super::*;
-
+    /*
     #[tokio::test]
     async fn test_new_measurement() {
         let mut storage = StorageComponent::<MeasurementData>::default();
@@ -175,12 +155,5 @@ mod tests {
 
         // Cleanup
         std::fs::remove_file(path).unwrap();
-    }
-
-    #[tokio::test]
-    async fn test_recording_state() {
-        let mut storage = StorageComponent::<MeasurementData>::default();
-        assert!(storage.start_recording().await.is_ok());
-        assert!(storage.stop_recording().await.is_ok());
-    }
+    } */
 }

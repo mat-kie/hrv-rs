@@ -1,6 +1,6 @@
 use crate::{
     api::{
-        controller::{MeasurementApi, OutlierFilter},
+        controller::{MeasurementApi, OutlierFilter, RecordingApi},
         model::MeasurementModelApi,
     },
     model::{
@@ -12,7 +12,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize};
-use std::fmt::Debug;
+use std::{any, fmt::Debug};
 use time::{Duration, OffsetDateTime};
 
 /// Represents the acquisition model, managing HRV-related data and operations.
@@ -29,6 +29,8 @@ pub struct MeasurementData {
     /// Processed session data.
     #[serde(skip)]
     sessiondata: HrvSessionData,
+    #[serde(skip)]
+    is_recording: bool,
 }
 
 impl MeasurementData {
@@ -56,6 +58,7 @@ impl Default for MeasurementData {
             window: None,
             outlier_filter: 100.0,
             sessiondata: Default::default(),
+            is_recording: false,
         }
     }
 }
@@ -89,6 +92,7 @@ impl<'de> Deserialize<'de> for MeasurementData {
             window: helper.window,
             outlier_filter: helper.outlier_filter,
             sessiondata,
+            is_recording: false,
         })
     }
 }
@@ -97,7 +101,7 @@ impl<'de> Deserialize<'de> for MeasurementData {
 impl MeasurementApi for MeasurementData {
     async fn set_stats_window(&mut self, window: Duration) -> Result<()> {
         self.window = Some(window);
-        Ok(())
+        self.update()
     }
     async fn set_outlier_filter(&mut self, filter: OutlierFilter) -> Result<()> {
         match filter {
@@ -108,12 +112,18 @@ impl MeasurementApi for MeasurementData {
                 self.outlier_filter = parameter;
             }
         }
-        Ok(())
+        self.update()
     }
     async fn record_message(&mut self, msg: HeartrateMessage) -> Result<()> {
-        let elapsed = OffsetDateTime::now_utc() - self.start_time;
-        self.measurements.push((elapsed, msg));
-        self.update()
+        if self.is_recording {
+            let elapsed = OffsetDateTime::now_utc() - self.start_time;
+            self.measurements.push((elapsed, msg));
+            self.update()
+        } else {
+            Err(anyhow::anyhow!(
+                "RecordMessage event received while not recording"
+            ))
+        }
     }
 }
 
@@ -146,6 +156,19 @@ impl MeasurementModelApi for MeasurementData {
     }
     fn get_stats_window(&self) -> Option<&Duration> {
         self.window.as_ref()
+    }
+}
+
+#[async_trait]
+impl RecordingApi for MeasurementData {
+    async fn start_recording(&mut self) -> Result<()> {
+        self.is_recording = true;
+        Ok(())
+    }
+
+    async fn stop_recording(&mut self) -> Result<()> {
+        self.is_recording = false;
+        Ok(())
     }
 }
 

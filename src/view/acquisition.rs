@@ -239,12 +239,11 @@ impl AcquisitionView {
             }
             if ui.button("discard").clicked() {
                 publish(AppEvent::Recording(RecordingEvent::StopRecording));
-                publish(AppEvent::AppState(StateChangeEvent::InitialState));
+                publish(AppEvent::AppState(StateChangeEvent::DiscardRecording));
             }
             if ui.button("Save").clicked() {
                 publish(AppEvent::Recording(RecordingEvent::StopRecording));
-                publish(AppEvent::Storage(StorageEvent::StoreRecordedMeasurement));
-                publish(AppEvent::AppState(StateChangeEvent::InitialState));
+                publish(AppEvent::AppState(StateChangeEvent::StoreRecording));
             }
         });
     }
