@@ -6,7 +6,7 @@
 use std::{path::PathBuf, sync::Arc};
 
 use crate::api::{
-    controller::{MeasurementApi, RecordingApi, StorageApi, StorageEventApi},
+    controller::{MeasurementApi, StorageApi, StorageEventApi},
     model::{MeasurementModelApi, ModelHandle, StorageModelApi},
 };
 use anyhow::{anyhow, Result};
@@ -115,45 +115,69 @@ mod tests {
     use crate::components::measurement::MeasurementData;
 
     use super::*;
-    /*
-    #[tokio::test]
-    async fn test_new_measurement() {
-        let mut storage = StorageComponent::<MeasurementData>::default();
-        assert!(storage.new_measurement().await.is_ok());
-        assert!(storage.get_active_measurement().is_some());
-    }
-
-    #[tokio::test]
-    async fn test_store_recorded_measurement() {
-        let mut storage = StorageComponent::<MeasurementData>::default();
-        assert!(storage.new_measurement().await.is_ok());
-        assert!(storage.store_recorded_measurement().await.is_ok());
-        assert_eq!(storage.get_acquisitions().len(), 1);
-    }
 
     #[tokio::test]
     async fn test_clear_storage() {
         let mut storage = StorageComponent::<MeasurementData>::default();
-        assert!(storage.new_measurement().await.is_ok());
-        assert!(storage.store_recorded_measurement().await.is_ok());
+        let measurement = Arc::new(RwLock::new(MeasurementData::default()));
+        assert!(storage.store_measurement(measurement.clone()).is_ok());
         assert!(storage.clear().await.is_ok());
         assert_eq!(storage.get_acquisitions().len(), 0);
     }
 
     #[tokio::test]
-    async fn test_store_and_load() {
+    async fn test_load_from_nonexistent_file() {
+        let temp_dir = tempdir::TempDir::new("test").unwrap();
+        let path = temp_dir
+            .path()
+            .join(PathBuf::from("some/invalid/subdir/nonexistent.json"));
         let mut storage = StorageComponent::<MeasurementData>::default();
-        assert!(storage.new_measurement().await.is_ok());
-        assert!(storage.store_recorded_measurement().await.is_ok());
+        let result = storage.load_from_file(path).await;
+        assert!(result.is_err());
+    }
 
-        let path = PathBuf::from("test_measurements.json");
+    #[tokio::test]
+    async fn test_store_to_invalid_path() {
+        let temp_dir = tempdir::TempDir::new("test").unwrap();
+        let path = temp_dir
+            .path()
+            .join(PathBuf::from("some/invalid/subdir/test_measurements.json"));
+        let mut storage = StorageComponent::<MeasurementData>::default();
+        let measurement = Arc::new(RwLock::new(MeasurementData::default()));
+        assert!(storage.store_measurement(measurement.clone()).is_ok());
+        let result = storage.store_to_file(path).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_store_and_load() {
+        let temp_dir = tempdir::TempDir::new("test").unwrap();
+        let path = temp_dir
+            .path()
+            .join(PathBuf::from("test_measurements.json"));
+        let mut storage = StorageComponent::<MeasurementData>::default();
+        let measurement = Arc::new(RwLock::new(MeasurementData::default()));
+        assert!(storage.store_measurement(measurement.clone()).is_ok());
         assert!(storage.store_to_file(path.clone()).await.is_ok());
 
         let mut new_storage = StorageComponent::<MeasurementData>::default();
         assert!(new_storage.load_from_file(path.clone()).await.is_ok());
         assert_eq!(new_storage.get_acquisitions().len(), 1);
+    }
 
-        // Cleanup
-        std::fs::remove_file(path).unwrap();
-    } */
+    #[tokio::test]
+    async fn test_get_measurement_out_of_bounds() {
+        let storage = StorageComponent::<MeasurementData>::default();
+        let result = storage.get_measurement(0);
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_store_and_retrieve_measurement() {
+        let mut storage = StorageComponent::<MeasurementData>::default();
+        let measurement = Arc::new(RwLock::new(MeasurementData::default()));
+        assert!(storage.store_measurement(measurement.clone()).is_ok());
+        let retrieved = storage.get_measurement(0).unwrap();
+        assert!(Arc::ptr_eq(&measurement, &retrieved))
+    }
 }

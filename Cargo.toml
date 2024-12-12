@@ -29,9 +29,12 @@ log = { version = "0.4.22", features = [] }
 serde = { version = "1.0.215", features = ["derive", "serde_derive"] }
 serde_json = "1.0.133"
 async-trait = "0.1.83"
-mockall = "0.13.1"
 rand = "0.8.5"
 typetag = "0.2.18"
 anyhow = { version = "1.0.94", features = ["backtrace"] }
 rust-fsm = "0.7.0"
 event_bridge = "0.3.1"
+
+[dev-dependencies]
+mockall = "0.13.1"
+tempdir = "0.3.7"

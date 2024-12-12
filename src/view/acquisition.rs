@@ -15,9 +15,7 @@ use crate::{
         model::{BluetoothModelApi, MeasurementModelApi, ModelHandle},
         view::ViewApi,
     },
-    core::events::{
-        AppEvent, BluetoothEvent, MeasurementEvent, RecordingEvent, StateChangeEvent, StorageEvent,
-    },
+    core::events::{AppEvent, BluetoothEvent, MeasurementEvent, RecordingEvent, StateChangeEvent},
 };
 
 pub fn render_stats(ui: &mut egui::Ui, model: &dyn MeasurementModelApi, hr: f64) {

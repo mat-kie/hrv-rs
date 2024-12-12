@@ -12,7 +12,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use log::warn;
 use serde::{Deserialize, Deserializer, Serialize};
-use std::{any, fmt::Debug};
+use std::fmt::Debug;
 use time::{Duration, OffsetDateTime};
 
 /// Represents the acquisition model, managing HRV-related data and operations.
@@ -237,6 +237,9 @@ mod tests {
     async fn test_record_message() {
         let mut data = MeasurementData::default();
         let hr_msg = HeartrateMessage::new(&[0b10000, 80, 255, 0]);
+        assert!(data.record_message(hr_msg).await.is_err());
+        assert_eq!(data.measurements.len(), 0);
+        assert!(data.start_recording().await.is_ok());
         assert!(data.record_message(hr_msg).await.is_ok());
         assert_eq!(data.measurements.len(), 1);
         assert_eq!(data.measurements[0].1.get_hr(), 80.0);
