@@ -118,7 +118,11 @@ impl MeasurementApi for MeasurementData {
         if self.is_recording {
             let elapsed = OffsetDateTime::now_utc() - self.start_time;
             self.measurements.push((elapsed, msg));
-            self.update()
+            self.sessiondata.add_measurement(
+                &msg,
+                self.window.unwrap_or(usize::MAX),
+                self.outlier_filter,
+            )
         } else {
             Err(anyhow::anyhow!(
                 "RecordMessage event received while not recording"

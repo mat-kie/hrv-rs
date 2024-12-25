@@ -165,6 +165,101 @@ impl HrvSessionData {
         Ok(new)
     }
 
+    pub fn add_measurement(
+        &mut self,
+        hrs_msg: &HeartrateMessage,
+        window: usize,
+        filter: f64,
+    ) -> Result<()> {
+        // add rr point
+        let mut new_rr: Vec<f64> = hrs_msg
+            .get_rr_intervals()
+            .iter()
+            .map(|&rr| f64::from(rr))
+            .collect();
+        let new_rr_len = new_rr.len();
+        if new_rr.is_empty() {
+            return Ok(());
+        }
+        let mut new_ts = new_rr
+            .iter()
+            .scan(
+                *self.rr_time.last().unwrap_or(&Duration::default()),
+                |acc, &rr| {
+                    *acc += Duration::milliseconds(rr as i64);
+                    Some(*acc)
+                },
+            )
+            .collect();
+        self.rr_intervals.append(&mut new_rr);
+        // add elapsed time
+        self.rr_time.append(&mut new_ts);
+
+        let current_window = self
+            .rr_intervals
+            .windows(window.min(self.rr_intervals.len()))
+            .last()
+            .ok_or_else(|| anyhow!("Not enough data for window"))?;
+        let rr = hide_quantization(current_window, None)?;
+        // run outlier filter with window
+        let class = classify_rr_values(&rr, None, None, Some(filter))?;
+        let mut added = class
+            .windows(new_rr_len)
+            .last()
+            .ok_or_else(|| anyhow!("classifier window failed"))?
+            .to_vec();
+        // add rr point classification
+        self.rr_classification.append(&mut added);
+
+        let range =
+            self.rr_classification.len().saturating_sub(class.len())..self.rr_classification.len();
+        self.rr_classification[range]
+            .iter_mut()
+            .zip(&class)
+            .for_each(|(old, &new)| {
+                *old = new;
+            });
+        let filtered_rr = rr
+            .iter()
+            .zip(&class)
+            .filter_map(|(rr, class)| {
+                if let OutlierType::None = class {
+                    Some(*rr)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<f64>>();
+        // calculate ts metrics with window and append to ts
+        let rmssd = calc_rmssd(&filtered_rr)?;
+        let sdrr = calc_sdrr(&filtered_rr)?;
+        let poincare = calc_poincare_metrics(&filtered_rr)?;
+        let hr = hrs_msg.get_hr();
+        let elapsed_time = self.rr_time.last().unwrap().as_seconds_f64();
+        self.hrv_stats = Some(HrvStatistics {
+            rmssd,
+            sdrr,
+            sd1: poincare.sd1,
+            sd1_eigenvec: poincare.sd1_eigenvector,
+            sd2: poincare.sd2,
+            sd2_eigenvec: poincare.sd2_eigenvector,
+            sd1_sd2_ratio: poincare.sd1 / poincare.sd2,
+            avg_hr: hr,
+        });
+        self.rmssd_ts.push([elapsed_time, rmssd]);
+        self.sd1_ts.push([elapsed_time, poincare.sd1]);
+        self.sd2_ts.push([elapsed_time, poincare.sd2]);
+        self.hr_ts.push([elapsed_time, hr]);
+        let dfa = DFAnalysis::udfa(
+            &filtered_rr,
+            &[4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+            DetrendStrategy::Linear,
+        )?;
+        self.dfa_alpha_ts.push([elapsed_time, dfa.alpha]);
+
+        Ok(())
+    }
+
     /// Adds a heart rate measurement to the session data.
     ///
     /// Updates the session with RR intervals, heart rate values, and reception timestamps
