@@ -40,12 +40,6 @@ mod components {
     pub mod storage;
 }
 
-/// Mathematical utilities for HRV analysis.
-mod math {
-    /// Functions and structures for HRV computation.
-    pub mod hrv;
-}
-
 /// Data models representing the application's domain.
 mod model {
 

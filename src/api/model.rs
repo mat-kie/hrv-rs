@@ -38,7 +38,7 @@ pub trait MeasurementModelApi: Debug + Send + Sync {
     ///
     /// # Returns
     /// A reference to an optional `Duration` representing the analysis window size.
-    fn get_stats_window(&self) -> Option<&Duration>;
+    fn get_stats_window(&self) -> Option<usize>;
 
     /// Getter for the filter parameter value (fraction of std. dev).
     ///

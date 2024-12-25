@@ -6,8 +6,8 @@
 use eframe::egui;
 use egui::Color32;
 use egui_plot::{Legend, Plot, Points};
+use hrv_algos::preprocessing::outliers::OutlierType;
 use std::ops::RangeInclusive;
-use time::Duration;
 
 use crate::{
     api::{
@@ -15,9 +15,7 @@ use crate::{
         model::{BluetoothModelApi, MeasurementModelApi, ModelHandle},
         view::ViewApi,
     },
-    core::events::{
-        AppEvent, BluetoothEvent, MeasurementEvent, RecordingEvent, StateChangeEvent, StorageEvent,
-    },
+    core::events::{AppEvent, BluetoothEvent, MeasurementEvent, RecordingEvent, StateChangeEvent},
 };
 
 pub fn render_stats(ui: &mut egui::Ui, model: &dyn MeasurementModelApi, hr: f64) {
@@ -84,6 +82,12 @@ pub fn render_time_series(ui: &mut egui::Ui, model: &dyn MeasurementModelApi) {
                 .name("HR [1/min]")
                 .color(Color32::GREEN),
         );
+
+        plot_ui.line(
+            egui_plot::Line::new(model.get_session_data().dfa_alpha_ts.clone())
+                .name("DFA 1 alpha")
+                .color(Color32::KHAKI),
+        );
     });
 }
 
@@ -93,11 +97,37 @@ pub fn render_poincare_plot(ui: &mut egui::Ui, model: &dyn MeasurementModelApi) 
         .data_aspect(1.0);
 
     plot.show(ui, |plot_ui| {
+        let pcp = model.get_poincare_points();
+        let (inliers, outliers) = model
+            .get_session_data()
+            .rr_classification
+            .windows(2)
+            .zip(pcp)
+            .map(|(w, point)| {
+                let (a, b) = (w[0], w[1]);
+                let inlier = a == OutlierType::None && b == OutlierType::None;
+                if inlier {
+                    (Some(point), None)
+                } else {
+                    (None, Some(point))
+                }
+            })
+            .unzip::<_, _, Vec<_>, Vec<_>>();
+        let inliers = inliers.iter().filter_map(|y| *y).collect::<Vec<_>>();
+        let outliers = outliers.iter().filter_map(|y| *y).collect::<Vec<_>>();
+
         plot_ui.points(
-            Points::new(model.get_poincare_points())
-                .name("R-R Intervals")
+            Points::new(inliers)
+                .name("R-R intervals")
                 .shape(egui_plot::MarkerShape::Diamond)
                 .color(Color32::RED)
+                .radius(5.0),
+        );
+        plot_ui.points(
+            Points::new(outliers)
+                .name("R-R intervals (outliers")
+                .shape(egui_plot::MarkerShape::Diamond)
+                .color(Color32::GRAY)
                 .radius(5.0),
         );
     });
@@ -174,25 +204,20 @@ pub fn render_filter_params<F: Fn(AppEvent)>(
 ) {
     ui.heading("Filter parameters:");
     egui::Grid::new("a grid").num_columns(2).show(ui, |ui| {
-        let mut seconds = model
-            .get_stats_window()
-            .unwrap_or(&Duration::minutes(5))
-            .as_seconds_f64();
-        let desc = egui::Label::new("time window [s]");
+        let mut samples = model.get_stats_window().unwrap_or(usize::MAX).to_owned();
+        let desc = egui::Label::new("window size [# samples]");
         ui.add(desc);
-        let slider = egui::Slider::new(&mut seconds, RangeInclusive::new(0.0, 600.0));
+        let slider = egui::Slider::new(&mut samples, RangeInclusive::new(30, 300));
         if ui.add(slider).changed() {
-            if let Some(new_duration) = Duration::checked_seconds_f64(seconds) {
-                publish(AppEvent::Measurement(MeasurementEvent::SetStatsWindow(
-                    new_duration,
-                )));
-            }
+            publish(AppEvent::Measurement(MeasurementEvent::SetStatsWindow(
+                samples,
+            )));
         }
         ui.end_row();
         let mut outlier_value = model.get_outlier_filter_value();
-        let desc = egui::Label::new("outlier filter");
+        let desc = egui::Label::new("outlier filter scale");
         ui.add(desc);
-        let slider = egui::Slider::new(&mut outlier_value, RangeInclusive::new(0.1, 400.0));
+        let slider = egui::Slider::new(&mut outlier_value, RangeInclusive::new(0.5, 10.0));
         if ui.add(slider).changed() {
             publish(AppEvent::Measurement(MeasurementEvent::SetOutlierFilter(
                 OutlierFilter::MovingMAD {
@@ -239,12 +264,11 @@ impl AcquisitionView {
             }
             if ui.button("discard").clicked() {
                 publish(AppEvent::Recording(RecordingEvent::StopRecording));
-                publish(AppEvent::AppState(StateChangeEvent::InitialState));
+                publish(AppEvent::AppState(StateChangeEvent::DiscardRecording));
             }
             if ui.button("Save").clicked() {
                 publish(AppEvent::Recording(RecordingEvent::StopRecording));
-                publish(AppEvent::Storage(StorageEvent::StoreRecordedMeasurement));
-                publish(AppEvent::AppState(StateChangeEvent::InitialState));
+                publish(AppEvent::AppState(StateChangeEvent::StoreRecording));
             }
         });
     }

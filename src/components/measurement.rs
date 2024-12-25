@@ -1,6 +1,6 @@
 use crate::{
     api::{
-        controller::{MeasurementApi, OutlierFilter},
+        controller::{MeasurementApi, OutlierFilter, RecordingApi},
         model::MeasurementModelApi,
     },
     model::{
@@ -23,12 +23,14 @@ pub struct MeasurementData {
     /// Collected measurements with their elapsed time.
     measurements: Vec<(Duration, HeartrateMessage)>,
     /// Window duration for statistical calculations.
-    window: Option<Duration>,
+    window: Option<usize>,
     /// Outlier filter threshold.
     outlier_filter: f64,
     /// Processed session data.
     #[serde(skip)]
     sessiondata: HrvSessionData,
+    #[serde(skip)]
+    is_recording: bool,
 }
 
 impl MeasurementData {
@@ -56,6 +58,7 @@ impl Default for MeasurementData {
             window: None,
             outlier_filter: 100.0,
             sessiondata: Default::default(),
+            is_recording: false,
         }
     }
 }
@@ -69,7 +72,7 @@ impl<'de> Deserialize<'de> for MeasurementData {
         struct AcquisitionModelHelper {
             start_time: OffsetDateTime,
             measurements: Vec<(Duration, HeartrateMessage)>,
-            window: Option<Duration>,
+            window: Option<usize>,
             outlier_filter: f64,
         }
         // Deserialize all fields except `sessiondata`
@@ -89,15 +92,16 @@ impl<'de> Deserialize<'de> for MeasurementData {
             window: helper.window,
             outlier_filter: helper.outlier_filter,
             sessiondata,
+            is_recording: false,
         })
     }
 }
 
 #[async_trait]
 impl MeasurementApi for MeasurementData {
-    async fn set_stats_window(&mut self, window: Duration) -> Result<()> {
+    async fn set_stats_window(&mut self, window: usize) -> Result<()> {
         self.window = Some(window);
-        Ok(())
+        self.update()
     }
     async fn set_outlier_filter(&mut self, filter: OutlierFilter) -> Result<()> {
         match filter {
@@ -108,12 +112,18 @@ impl MeasurementApi for MeasurementData {
                 self.outlier_filter = parameter;
             }
         }
-        Ok(())
+        self.update()
     }
     async fn record_message(&mut self, msg: HeartrateMessage) -> Result<()> {
-        let elapsed = OffsetDateTime::now_utc() - self.start_time;
-        self.measurements.push((elapsed, msg));
-        self.update()
+        if self.is_recording {
+            let elapsed = OffsetDateTime::now_utc() - self.start_time;
+            self.measurements.push((elapsed, msg));
+            self.update()
+        } else {
+            Err(anyhow::anyhow!(
+                "RecordMessage event received while not recording"
+            ))
+        }
     }
 }
 
@@ -144,8 +154,21 @@ impl MeasurementModelApi for MeasurementData {
     fn get_start_time(&self) -> &OffsetDateTime {
         &self.start_time
     }
-    fn get_stats_window(&self) -> Option<&Duration> {
-        self.window.as_ref()
+    fn get_stats_window(&self) -> Option<usize> {
+        self.window
+    }
+}
+
+#[async_trait]
+impl RecordingApi for MeasurementData {
+    async fn start_recording(&mut self) -> Result<()> {
+        self.is_recording = true;
+        Ok(())
+    }
+
+    async fn stop_recording(&mut self) -> Result<()> {
+        self.is_recording = false;
+        Ok(())
     }
 }
 
@@ -194,7 +217,7 @@ mod tests {
     #[tokio::test]
     async fn test_set_stats_window() {
         let mut data = MeasurementData::default();
-        let window = Duration::seconds(60);
+        let window = 60;
         assert!(data.set_stats_window(window).await.is_ok());
         assert_eq!(data.window, Some(window));
     }
@@ -214,6 +237,9 @@ mod tests {
     async fn test_record_message() {
         let mut data = MeasurementData::default();
         let hr_msg = HeartrateMessage::new(&[0b10000, 80, 255, 0]);
+        assert!(data.record_message(hr_msg).await.is_err());
+        assert_eq!(data.measurements.len(), 0);
+        assert!(data.start_recording().await.is_ok());
         assert!(data.record_message(hr_msg).await.is_ok());
         assert_eq!(data.measurements.len(), 1);
         assert_eq!(data.measurements[0].1.get_hr(), 80.0);
@@ -279,8 +305,8 @@ mod tests {
     async fn test_get_stats_window() {
         let mut data = MeasurementData::default();
         assert!(data.get_stats_window().is_none());
-        assert!(data.set_stats_window(Duration::seconds(60)).await.is_ok());
+        assert!(data.set_stats_window(60).await.is_ok());
         assert!(data.get_stats_window().is_some());
-        assert_eq!(data.get_stats_window().unwrap(), &Duration::seconds(60));
+        assert_eq!(data.get_stats_window().unwrap(), 60);
     }
 }

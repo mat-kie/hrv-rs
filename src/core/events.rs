@@ -6,7 +6,6 @@
 use anyhow::Result;
 use event_bridge::EventBridge;
 use std::path::PathBuf;
-use time::Duration;
 
 use crate::{
     api::controller::{BluetoothApi, MeasurementApi, OutlierFilter, RecordingApi, StorageEventApi},
@@ -20,14 +19,13 @@ pub enum StorageEvent {
     Clear,
     LoadFromFile(PathBuf),
     StoreToFile(PathBuf),
-    StoreRecordedMeasurement,
 }
 
 #[derive(Debug, Clone, EventBridge)]
 #[forward_to_trait(MeasurementApi)]
 #[trait_returned_type(HandlerResult)]
 pub enum MeasurementEvent {
-    SetStatsWindow(Duration),
+    SetStatsWindow(usize),
     SetOutlierFilter(OutlierFilter),
     RecordMessage(HeartrateMessage),
 }
@@ -53,6 +51,8 @@ pub enum BluetoothEvent {
 
 #[derive(Debug, Clone)]
 pub enum StateChangeEvent {
+    DiscardRecording,
+    StoreRecording,
     ToRecordingState,
     InitialState,
     SelectMeasurement(usize),
