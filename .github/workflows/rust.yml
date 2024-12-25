@@ -14,97 +14,91 @@ jobs:
     name: Check
     runs-on: ubuntu-latest
     steps:
+      - name: Install Dependencies
+        run: sudo apt install libdbus-1-dev pkg-config
+        
       - name: Checkout sources
         uses: actions/checkout@v4
 
       - name: Install stable toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-
-      - name: Install Dependencies
-        run: sudo apt install libdbus-1-dev pkg-config
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: setup cache
+        uses:  Swatinem/rust-cache@v2
 
       - name: Run cargo check
-        uses: actions-rs/cargo@v1
-        with:
-          command: check
-
-  test:
-    name: Test Suite
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout sources
-        uses: actions/checkout@v4
-      
-      - name: Install stable toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-      - name: Install Dependencies
-        run: sudo apt install libdbus-1-dev pkg-config
-      - name: Run cargo test
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-
+        run: cargo check --all-targets --all-features
   lints:
     name: Lints
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout sources
-        uses: actions/checkout@v2
-
-      - name: Install stable toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-          components: rustfmt, clippy
-
       - name: Install Dependencies
         run: sudo apt install libdbus-1-dev pkg-config
 
-      - name: Run cargo fmt
-        uses: actions-rs/cargo@v1
+      - name: Checkout sources
+        uses: actions/checkout@v2
+
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
         with:
-          command: fmt
-          args: --all -- --check
+          components: clippy, rustfmt
+        
+      - name: setup cache
+        uses:  Swatinem/rust-cache@v2
+  
+
+      - name: Run cargo fmt
+        run: cargo fmt --all -- --check
 
       - name: Run cargo clippy
-        uses: actions-rs/cargo@v1
-        with:
-          command: clippy
-          args: -- -D warnings
+        run: cargo clippy --all-features -- -D warnings
+  
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Dependencies
+        run: sudo apt install libdbus-1-dev pkg-config
+
+      - name: Checkout sources
+        uses: actions/checkout@v4
+      
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+        
+      - name: setup cache
+        uses:  Swatinem/rust-cache@v2
+
+      - name: Run cargo test
+        run: cargo test --all-features -- --test-threads=1
 
   coverage:
     name: coverage tests
     runs-on: ubuntu-latest
     steps:
+      - name: Install Dependencies
+        run: sudo apt install libdbus-1-dev pkg-config
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 30
 
       - name: Install stable toolchain
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
-          override: true
+          components: clippy, rustfmt
+          
+      - name: setup cache
+        uses:  Swatinem/rust-cache@v2
+    
 
-      - name: Install Dependencies
-        run: sudo apt install libdbus-1-dev pkg-config
-
-      - name: Run cargo-tarpaulin
-        uses: actions-rs/tarpaulin@v0.1
-        with:
-          version: '0.15.0'
-          args: '-- --test-threads 1'
+      - name: Install cargo-tarpaulin
+        run: cargo install cargo-tarpaulin
+      
+      - name: Run cargo tarpaulin
+        run: cargo tarpaulin --out Xml --all-features -- --test-threads=1
 
       - name: Upload to codecov.io
         uses: codecov/codecov-action@v5
@@ -116,4 +110,3 @@ jobs:
         with:
           name: code-coverage-report
           path: cobertura.xml
- 
