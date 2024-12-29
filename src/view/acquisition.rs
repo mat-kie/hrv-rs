@@ -18,6 +18,15 @@ use crate::{
     core::events::{AppEvent, BluetoothEvent, MeasurementEvent, RecordingEvent, StateChangeEvent},
 };
 
+fn render_labelled_data(ui: &mut egui::Ui, label: &str, data: Option<String>) {
+    if let Some(data) = data {
+        let desc = egui::Label::new(label);
+        ui.add(desc);
+        let val = egui::Label::new(data);
+        ui.add(val);
+    }
+}
+
 pub fn render_stats(ui: &mut egui::Ui, model: &dyn MeasurementModelApi, hr: f64) {
     ui.heading("Statistics");
     egui::Grid::new("stats grid").num_columns(2).show(ui, |ui| {
@@ -32,29 +41,30 @@ pub fn render_stats(ui: &mut egui::Ui, model: &dyn MeasurementModelApi, hr: f64)
         let val = egui::Label::new(format!("{} s", model.get_elapsed_time().whole_seconds()));
         ui.add(val);
         ui.end_row();
-
-        if let Some(stats) = model.get_hrv_stats() {
-            let desc = egui::Label::new("RMSSD [ms]");
-            ui.add(desc);
-            let val = egui::Label::new(format!("{:.2} ms", stats.rmssd));
-            ui.add(val);
-            ui.end_row();
-            let desc = egui::Label::new("SDRR [ms]");
-            ui.add(desc);
-            let val = egui::Label::new(format!("{:.2} ms", stats.sdrr));
-            ui.add(val);
-            ui.end_row();
-            let desc = egui::Label::new("SD1 [ms]");
-            ui.add(desc);
-            let val = egui::Label::new(format!("{:.2} ms", stats.sd1));
-            ui.add(val);
-            ui.end_row();
-            let desc = egui::Label::new("SD2 [ms]");
-            ui.add(desc);
-            let val = egui::Label::new(format!("{:.2} ms", stats.sd2));
-            ui.add(val);
-            ui.end_row();
-        }
+        render_labelled_data(
+            ui,
+            "RMSSD",
+            model.get_rmssd().map(|val| format!("{:.2} ms", val)),
+        );
+        ui.end_row();
+        render_labelled_data(
+            ui,
+            "SDRR",
+            model.get_sdrr().map(|val| format!("{:.2} ms", val)),
+        );
+        ui.end_row();
+        render_labelled_data(
+            ui,
+            "SD1",
+            model.get_sd1().map(|val| format!("{:.2} ms", val)),
+        );
+        ui.end_row();
+        render_labelled_data(
+            ui,
+            "RMSSD",
+            model.get_sd2().map(|val| format!("{:.2} ms", val)),
+        );
+        ui.end_row();
     });
 }
 
@@ -63,28 +73,28 @@ pub fn render_time_series(ui: &mut egui::Ui, model: &dyn MeasurementModelApi) {
 
     plot.show(ui, |plot_ui| {
         plot_ui.line(
-            egui_plot::Line::new(model.get_session_data().rmssd_ts.clone())
+            egui_plot::Line::new(model.get_rmssd_ts())
                 .name("RMSSD [ms]")
                 .color(Color32::RED),
         );
         plot_ui.line(
-            egui_plot::Line::new(model.get_session_data().sd1_ts.clone())
+            egui_plot::Line::new(model.get_sd1_ts())
                 .name("SD1 [ms]")
                 .color(Color32::BLUE),
         );
         plot_ui.line(
-            egui_plot::Line::new(model.get_session_data().sd2_ts.clone())
+            egui_plot::Line::new(model.get_sd2_ts())
                 .name("SD2 [ms]")
                 .color(Color32::YELLOW),
         );
         plot_ui.line(
-            egui_plot::Line::new(model.get_session_data().hr_ts.clone())
+            egui_plot::Line::new(model.get_hr_ts())
                 .name("HR [1/min]")
                 .color(Color32::GREEN),
         );
 
         plot_ui.line(
-            egui_plot::Line::new(model.get_session_data().dfa_alpha_ts.clone())
+            egui_plot::Line::new(model.get_dfa1a_ts())
                 .name("DFA 1 alpha")
                 .color(Color32::KHAKI),
         );
@@ -98,34 +108,17 @@ pub fn render_poincare_plot(ui: &mut egui::Ui, model: &dyn MeasurementModelApi) 
 
     plot.show(ui, |plot_ui| {
         let pcp = model.get_poincare_points();
-        let (inliers, outliers) = model
-            .get_session_data()
-            .rr_classification
-            .windows(2)
-            .zip(pcp)
-            .map(|(w, point)| {
-                let (a, b) = (w[0], w[1]);
-                let inlier = a == OutlierType::None && b == OutlierType::None;
-                if inlier {
-                    (Some(point), None)
-                } else {
-                    (None, Some(point))
-                }
-            })
-            .unzip::<_, _, Vec<_>, Vec<_>>();
-        let inliers = inliers.iter().filter_map(|y| *y).collect::<Vec<_>>();
-        let outliers = outliers.iter().filter_map(|y| *y).collect::<Vec<_>>();
-
+        let (inliers, outliers) = model.get_poincare_points();
         plot_ui.points(
             Points::new(inliers)
-                .name("R-R intervals")
+                .name("R-R")
                 .shape(egui_plot::MarkerShape::Diamond)
                 .color(Color32::RED)
                 .radius(5.0),
         );
         plot_ui.points(
             Points::new(outliers)
-                .name("R-R intervals (outliers")
+                .name("R-R outliers")
                 .shape(egui_plot::MarkerShape::Diamond)
                 .color(Color32::GRAY)
                 .radius(5.0),

@@ -3,10 +3,7 @@ use crate::{
         controller::{MeasurementApi, OutlierFilter, RecordingApi},
         model::MeasurementModelApi,
     },
-    model::{
-        bluetooth::HeartrateMessage,
-        hrv::{HrvSessionData, HrvStatistics},
-    },
+    model::{bluetooth::HeartrateMessage, hrv::HrvSessionData},
 };
 use anyhow::Result;
 use async_trait::async_trait;
@@ -142,15 +139,12 @@ impl MeasurementModelApi for MeasurementData {
     fn get_last_msg(&self) -> Option<&HeartrateMessage> {
         self.measurements.last().map(|(_, msg)| msg)
     }
-    fn get_hrv_stats(&self) -> Option<&HrvStatistics> {
-        self.sessiondata.hrv_stats.as_ref()
-    }
 
     fn get_outlier_filter_value(&self) -> f64 {
         self.outlier_filter
     }
-    fn get_poincare_points(&self) -> Vec<[f64; 2]> {
-        self.sessiondata.get_poincare()
+    fn get_poincare_points(&self) -> (Vec<[f64; 2]>, Vec<[f64; 2]>) {
+        Default::default()
     }
     fn get_session_data(&self) -> &HrvSessionData {
         &self.sessiondata
@@ -160,6 +154,12 @@ impl MeasurementModelApi for MeasurementData {
     }
     fn get_stats_window(&self) -> Option<usize> {
         self.window
+    }
+    fn get_dfa1a(&self) -> Option<f64> {
+        self.get_dfa1a_ts().last().map(|x| x[1])
+    }
+    fn get_dfa1a_ts(&self) -> Vec<[f64; 2]> {
+        self.sessiondata.dfa1a_ts.clone()
     }
 }
 

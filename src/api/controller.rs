@@ -92,7 +92,7 @@ pub trait MeasurementApi: MeasurementModelApi {
     ///
     /// # Arguments
     ///
-    /// * `window` - A `Duration` representing the length of the statistics window.
+    /// * `window` - Number of samples to consider for statistics
     async fn set_stats_window(&mut self, window: usize) -> Result<()>;
 
     /// Set the outlier filter.

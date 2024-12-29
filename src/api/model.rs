@@ -8,7 +8,7 @@ use tokio::sync::RwLock;
 
 use crate::model::{
     bluetooth::{AdapterDescriptor, DeviceDescriptor, HeartrateMessage},
-    hrv::{HrvSessionData, HrvStatistics},
+    hrv::HrvSessionData,
 };
 
 /// `MeasurementModelApi` trait.
@@ -28,11 +28,19 @@ pub trait MeasurementModelApi: Debug + Send + Sync {
     /// An optional `HeartrateMessage` representing the most recent measurement.
     fn get_last_msg(&self) -> Option<&HeartrateMessage>;
 
-    /// Retrieves the current HRV statistics.
-    ///
-    /// # Returns
-    /// A reference to an optional `HrvStatistics` containing computed HRV data.
-    fn get_hrv_stats(&self) -> Option<&HrvStatistics>;
+    fn get_rmssd(&self) -> Option<f64>;
+    fn get_sdrr(&self) -> Option<f64>;
+    fn get_sd1(&self) -> Option<f64>;
+    fn get_sd2(&self) -> Option<f64>;
+    fn get_hr(&self) -> Option<f64>;
+    fn get_dfa1a(&self) -> Option<f64>;
+
+    fn get_rmssd_ts(&self) -> Vec<[f64; 2]>;
+    fn get_sdrr_ts(&self) -> Vec<[f64; 2]>;
+    fn get_sd1_ts(&self) -> Vec<[f64; 2]>;
+    fn get_sd2_ts(&self) -> Vec<[f64; 2]>;
+    fn get_hr_ts(&self) -> Vec<[f64; 2]>;
+    fn get_dfa1a_ts(&self) -> Vec<[f64; 2]>;
 
     /// Retrieves the configured statistics window.
     ///
@@ -50,7 +58,7 @@ pub trait MeasurementModelApi: Debug + Send + Sync {
     ///
     /// # Returns
     /// A vector of `[f64; 2]` pairs representing the Poincare points.
-    fn get_poincare_points(&self) -> Vec<[f64; 2]>;
+    fn get_poincare_points(&self) -> (Vec<[f64; 2]>, Vec<[f64; 2]>);
 
     /// Retrieves the session data.
     ///
