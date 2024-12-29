@@ -56,7 +56,7 @@ impl Default for MeasurementData {
             start_time: OffsetDateTime::now_utc(),
             measurements: Vec::new(),
             window: None,
-            outlier_filter: 100.0,
+            outlier_filter: 5.0,
             sessiondata: Default::default(),
             is_recording: false,
         }
@@ -143,12 +143,10 @@ impl MeasurementModelApi for MeasurementData {
     fn get_outlier_filter_value(&self) -> f64 {
         self.outlier_filter
     }
-    fn get_poincare_points(&self) -> (Vec<[f64; 2]>, Vec<[f64; 2]>) {
-        Default::default()
+    fn get_poincare_points(&self) -> Result<(Vec<[f64; 2]>, Vec<[f64; 2]>)> {
+        self.sessiondata.get_poincare(self.window)
     }
-    fn get_session_data(&self) -> &HrvAnalysisData {
-        &self.sessiondata
-    }
+
     fn get_start_time(&self) -> &OffsetDateTime {
         &self.start_time
     }
@@ -234,7 +232,7 @@ mod tests {
     fn test_deserialize_measurement_data() {
         let hr_msg = HeartrateMessage::new(&[0b10000, 80, 255, 0]);
         let mut data = MeasurementData::default();
-        for _i in 0..4 {
+        for _i in 0..100 {
             data.measurements.push((Duration::seconds(1), hr_msg));
         }
         data.start_time = datetime!(2023-01-01 00:00:00 UTC);
@@ -242,7 +240,7 @@ mod tests {
         let json = serde_json::to_string(&data).unwrap();
         let data: MeasurementData = serde_json::from_str(&json).unwrap();
         assert_eq!(data.start_time, datetime!(2023-01-01 00:00:00 UTC));
-        assert_eq!(data.measurements.len(), 4);
+        assert_eq!(data.measurements.len(), 100);
         assert_eq!(data.measurements[0].1.get_hr(), 80.0);
         assert_eq!(data.outlier_filter, 100.0);
     }
@@ -318,11 +316,6 @@ mod tests {
             data.measurements.push((Duration::seconds(1), hr_msg));
         }
         data.update().unwrap();
-    }
-
-    #[test]
-    fn test_get_session_data() {
-        let data = MeasurementData::default();
     }
 
     #[test]

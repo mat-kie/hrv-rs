@@ -1,15 +1,12 @@
 //! This module defines the read only API for interacting with various models.
 //! It provides interfaces for accessing data related to HRV measurements,
 //! Bluetooth adapters, and stored acquisitions.
+use crate::model::{bluetooth::{AdapterDescriptor, DeviceDescriptor, HeartrateMessage}, hrv::PoincarePoints};
+use anyhow::Result;
 use btleplug::api::BDAddr;
 use std::{fmt::Debug, sync::Arc};
 use time::{Duration, OffsetDateTime};
 use tokio::sync::RwLock;
-
-use crate::model::{
-    bluetooth::{AdapterDescriptor, DeviceDescriptor, HeartrateMessage},
-    hrv::HrvAnalysisData,
-};
 
 /// `MeasurementModelApi` trait.
 ///
@@ -58,13 +55,7 @@ pub trait MeasurementModelApi: Debug + Send + Sync {
     ///
     /// # Returns
     /// A vector of `[f64; 2]` pairs representing the Poincare points.
-    fn get_poincare_points(&self) -> (Vec<[f64; 2]>, Vec<[f64; 2]>);
-
-    /// Retrieves the session data.
-    ///
-    /// # Returns
-    /// A reference to the `HrvSessionData`.
-    fn get_session_data(&self) -> &HrvAnalysisData;
+    fn get_poincare_points(&self) -> Result<PoincarePoints>;
 
     /// Retrieves the elapsed time since the start of the acquisition.
     ///

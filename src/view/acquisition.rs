@@ -6,7 +6,6 @@
 use eframe::egui;
 use egui::Color32;
 use egui_plot::{Legend, Plot, Points};
-use hrv_algos::preprocessing::outliers::OutlierType;
 use std::ops::RangeInclusive;
 
 use crate::{
@@ -61,6 +60,18 @@ pub fn render_stats(ui: &mut egui::Ui, model: &dyn MeasurementModelApi, hr: f64)
         ui.end_row();
         render_labelled_data(
             ui,
+            "SD2",
+            model.get_sd2().map(|val| format!("{:.2} ms", val)),
+        );
+        ui.end_row();
+        render_labelled_data(
+            ui,
+            "DFA 1 alpha",
+            model.get_dfa1a().map(|val| format!("{:.2} ms", val)),
+        );
+        ui.end_row();
+        render_labelled_data(
+            ui,
             "RMSSD",
             model.get_sd2().map(|val| format!("{:.2} ms", val)),
         );
@@ -76,6 +87,11 @@ pub fn render_time_series(ui: &mut egui::Ui, model: &dyn MeasurementModelApi) {
             egui_plot::Line::new(model.get_rmssd_ts())
                 .name("RMSSD [ms]")
                 .color(Color32::RED),
+        );
+        plot_ui.line(
+            egui_plot::Line::new(model.get_sdrr_ts())
+                .name("RMSSD [ms]")
+                .color(Color32::DARK_GREEN),
         );
         plot_ui.line(
             egui_plot::Line::new(model.get_sd1_ts())
@@ -107,22 +123,22 @@ pub fn render_poincare_plot(ui: &mut egui::Ui, model: &dyn MeasurementModelApi) 
         .data_aspect(1.0);
 
     plot.show(ui, |plot_ui| {
-        let pcp = model.get_poincare_points();
-        let (inliers, outliers) = model.get_poincare_points();
-        plot_ui.points(
-            Points::new(inliers)
-                .name("R-R")
-                .shape(egui_plot::MarkerShape::Diamond)
-                .color(Color32::RED)
-                .radius(5.0),
-        );
-        plot_ui.points(
-            Points::new(outliers)
-                .name("R-R outliers")
-                .shape(egui_plot::MarkerShape::Diamond)
-                .color(Color32::GRAY)
-                .radius(5.0),
-        );
+        if let Ok((inliers, outliers)) = model.get_poincare_points() {
+            plot_ui.points(
+                Points::new(inliers)
+                    .name("R-R")
+                    .shape(egui_plot::MarkerShape::Diamond)
+                    .color(Color32::RED)
+                    .radius(5.0),
+            );
+            plot_ui.points(
+                Points::new(outliers)
+                    .name("R-R outliers")
+                    .shape(egui_plot::MarkerShape::Diamond)
+                    .color(Color32::GRAY)
+                    .radius(5.0),
+            );
+        }
     });
 }
 

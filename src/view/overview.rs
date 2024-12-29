@@ -112,11 +112,7 @@ impl ViewApi for StorageView {
             let lck = selected.blocking_read();
             egui::SidePanel::right("right:overview").show(ctx, |ui| {
                 let model = &*lck;
-                let hr = if let Some(hr) = model.get_hr() {
-                    hr
-                } else {
-                    0.0
-                };
+                let hr = model.get_hr().unwrap_or(0.0);
                 render_stats(ui, model, hr);
                 ui.separator();
                 render_filter_params(ui, &publish, model);
