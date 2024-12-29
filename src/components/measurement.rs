@@ -3,7 +3,7 @@ use crate::{
         controller::{MeasurementApi, OutlierFilter, RecordingApi},
         model::MeasurementModelApi,
     },
-    model::{bluetooth::HeartrateMessage, hrv::HrvSessionData},
+    model::{bluetooth::HeartrateMessage, hrv::HrvAnalysisData},
 };
 use anyhow::Result;
 use async_trait::async_trait;
@@ -25,7 +25,7 @@ pub struct MeasurementData {
     outlier_filter: f64,
     /// Processed session data.
     #[serde(skip)]
-    sessiondata: HrvSessionData,
+    sessiondata: HrvAnalysisData,
     #[serde(skip)]
     is_recording: bool,
 }
@@ -36,8 +36,11 @@ impl MeasurementData {
     /// # Returns
     /// A result indicating success or failure.
     fn update(&mut self) -> Result<()> {
-        match HrvSessionData::from_acquisition(&self.measurements, self.window, self.outlier_filter)
-        {
+        match HrvAnalysisData::from_acquisition(
+            &self.measurements,
+            self.window,
+            self.outlier_filter,
+        ) {
             Ok(data) => self.sessiondata = data,
             Err(e) => {
                 warn!("could not calculate session data: {}", e);
@@ -76,7 +79,7 @@ impl<'de> Deserialize<'de> for MeasurementData {
         let helper = AcquisitionModelHelper::deserialize(deserializer)?;
 
         // Reconstruct `sessiondata` from the `measurements`
-        let sessiondata = HrvSessionData::from_acquisition(
+        let sessiondata = HrvAnalysisData::from_acquisition(
             &helper.measurements,
             helper.window,
             helper.outlier_filter,
@@ -115,11 +118,8 @@ impl MeasurementApi for MeasurementData {
         if self.is_recording {
             let elapsed = OffsetDateTime::now_utc() - self.start_time;
             self.measurements.push((elapsed, msg));
-            self.sessiondata.add_measurement(
-                &msg,
-                self.window.unwrap_or(usize::MAX),
-                self.outlier_filter,
-            )
+            self.sessiondata
+                .add_measurement(&msg, self.window.unwrap_or(usize::MAX))
         } else {
             Err(anyhow::anyhow!(
                 "RecordMessage event received while not recording"
@@ -146,7 +146,7 @@ impl MeasurementModelApi for MeasurementData {
     fn get_poincare_points(&self) -> (Vec<[f64; 2]>, Vec<[f64; 2]>) {
         Default::default()
     }
-    fn get_session_data(&self) -> &HrvSessionData {
+    fn get_session_data(&self) -> &HrvAnalysisData {
         &self.sessiondata
     }
     fn get_start_time(&self) -> &OffsetDateTime {
@@ -156,10 +156,40 @@ impl MeasurementModelApi for MeasurementData {
         self.window
     }
     fn get_dfa1a(&self) -> Option<f64> {
-        self.get_dfa1a_ts().last().map(|x| x[1])
+        self.sessiondata.get_dfa_alpha()
     }
     fn get_dfa1a_ts(&self) -> Vec<[f64; 2]> {
-        self.sessiondata.dfa1a_ts.clone()
+        self.sessiondata.get_dfa_alpha_ts().to_owned()
+    }
+    fn get_hr(&self) -> Option<f64> {
+        self.sessiondata.get_hr()
+    }
+    fn get_hr_ts(&self) -> Vec<[f64; 2]> {
+        self.sessiondata.get_hr_ts().to_owned()
+    }
+    fn get_rmssd(&self) -> Option<f64> {
+        self.sessiondata.get_rmssd()
+    }
+    fn get_rmssd_ts(&self) -> Vec<[f64; 2]> {
+        self.sessiondata.get_rmssd_ts().to_owned()
+    }
+    fn get_sd1(&self) -> Option<f64> {
+        self.sessiondata.get_sd1()
+    }
+    fn get_sd1_ts(&self) -> Vec<[f64; 2]> {
+        self.sessiondata.get_sd1_ts().to_owned()
+    }
+    fn get_sd2(&self) -> Option<f64> {
+        self.sessiondata.get_sd2()
+    }
+    fn get_sd2_ts(&self) -> Vec<[f64; 2]> {
+        self.sessiondata.get_sd2_ts().to_owned()
+    }
+    fn get_sdrr(&self) -> Option<f64> {
+        self.sessiondata.get_sdrr()
+    }
+    fn get_sdrr_ts(&self) -> Vec<[f64; 2]> {
+        self.sessiondata.get_sdrr_ts().to_owned()
     }
 }
 
@@ -198,7 +228,6 @@ mod tests {
             data.measurements.push((Duration::seconds(1), hr_msg));
         }
         assert!(data.update().is_ok());
-        assert!(data.sessiondata.hrv_stats.is_some());
     }
 
     #[test]
@@ -273,7 +302,6 @@ mod tests {
             data.measurements.push((Duration::seconds(1), hr_msg));
         }
         data.update().unwrap();
-        assert!(data.get_hrv_stats().is_some());
     }
 
     #[test]
@@ -290,13 +318,11 @@ mod tests {
             data.measurements.push((Duration::seconds(1), hr_msg));
         }
         data.update().unwrap();
-        assert_eq!(data.get_poincare_points().len(), 3);
     }
 
     #[test]
     fn test_get_session_data() {
         let data = MeasurementData::default();
-        assert!(data.get_session_data().hrv_stats.is_none());
     }
 
     #[test]

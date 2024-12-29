@@ -8,7 +8,7 @@ use tokio::sync::RwLock;
 
 use crate::model::{
     bluetooth::{AdapterDescriptor, DeviceDescriptor, HeartrateMessage},
-    hrv::HrvSessionData,
+    hrv::HrvAnalysisData,
 };
 
 /// `MeasurementModelApi` trait.
@@ -64,7 +64,7 @@ pub trait MeasurementModelApi: Debug + Send + Sync {
     ///
     /// # Returns
     /// A reference to the `HrvSessionData`.
-    fn get_session_data(&self) -> &HrvSessionData;
+    fn get_session_data(&self) -> &HrvAnalysisData;
 
     /// Retrieves the elapsed time since the start of the acquisition.
     ///
