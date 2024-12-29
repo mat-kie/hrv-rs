@@ -90,7 +90,7 @@ pub fn render_time_series(ui: &mut egui::Ui, model: &dyn MeasurementModelApi) {
         );
         plot_ui.line(
             egui_plot::Line::new(model.get_sdrr_ts())
-                .name("RMSSD [ms]")
+                .name("SDRR [ms]")
                 .color(Color32::DARK_GREEN),
         );
         plot_ui.line(
