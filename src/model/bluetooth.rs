@@ -86,6 +86,48 @@ impl HeartrateMessage {
         result
     }
 
+    /// Constructs a new `HeartrateMessage` from individual values.
+    /// This method is useful for testing and constructing messages with specific data.
+    /// # Arguments
+    /// * `hr_value` - The heart rate value in BPM.
+    /// * `energy_expended` - The energy expenditure in kilojoules (optional).
+    /// * `rr_values_ms` - A slice of RR interval values in milliseconds.
+    /// # Returns
+    /// A new `HeartrateMessage` instance with the specified values.
+    /// # Panics
+    /// Panics if the provided RR interval slice is longer than 9 elements.
+    /// # Example
+    /// ```
+    /// use hrv_rs::model::bluetooth::HeartrateMessage;
+    /// let msg = HeartrateMessage::from_values(80, Some(10), &[1000, 250]);
+    /// assert_eq!(msg.get_hr(), 80.0);
+    /// assert!(msg.has_energy_exp());
+    /// assert_eq!(msg.get_energy_exp(), 10.0);
+    /// assert!(msg.has_rr_interval());
+    /// assert_eq!(msg.get_rr_intervals(), &[1000, 250]);
+    /// ```
+    #[cfg(test)]
+    fn from_values(hr_value: u16, energy_expended: Option<u16>, rr_values_ms: &[u16]) -> Self {
+        let mut flags = 0b00000000;
+        if !rr_values_ms.is_empty() {
+            flags |= 0b00010000;
+        }
+        if energy_expended.is_some() {
+            flags |= 0b00001000;
+        }
+        let mut rr_values = [0u16; 9];
+        rr_values
+            .iter_mut()
+            .zip(rr_values_ms.iter())
+            .for_each(|(a, &b)| *a = b);
+
+        HeartrateMessage {
+            flags,
+            hr_value,
+            energy_expended: energy_expended.unwrap_or(0),
+            rr_values,
+        }
+    }
     /// Checks if the heart rate value uses 16-bit representation.
     pub fn has_long_hr(&self) -> bool {
         is_bit_set!(self.flags, 0)
@@ -340,5 +382,33 @@ mod test {
         assert_eq!(msg.get_rr_intervals(), &[1000, 250]);
         assert!(msg.sen_has_contact());
         assert!(msg.sen_contact_supported());
+    }
+
+    #[test]
+    fn test_from_values_full() {
+        let msg = HeartrateMessage::from_values(80, Some(10), &[1000, 250]);
+        assert_eq!(msg.get_hr(), 80.0);
+        assert!(msg.has_energy_exp());
+        assert_eq!(msg.get_energy_exp(), 10.0);
+        assert!(msg.has_rr_interval());
+        assert_eq!(msg.get_rr_intervals(), &[1000, 250]);
+    }
+
+    #[test]
+    fn test_from_values_no_rr() {
+        let msg = HeartrateMessage::from_values(80, Some(10), &[]);
+        assert_eq!(msg.get_hr(), 80.0);
+        assert!(msg.has_energy_exp());
+        assert_eq!(msg.get_energy_exp(), 10.0);
+        assert!(!msg.has_rr_interval());
+    }
+
+    #[test]
+    fn test_from_values_no_exp() {
+        let msg = HeartrateMessage::from_values(80, None, &[1000, 250]);
+        assert_eq!(msg.get_hr(), 80.0);
+        assert!(!msg.has_energy_exp());
+        assert!(msg.has_rr_interval());
+        assert_eq!(msg.get_rr_intervals(), &[1000, 250]);
     }
 }
