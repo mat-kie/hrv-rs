@@ -27,8 +27,6 @@ pub struct StorageComponent<
 > {
     measurements: Vec<Arc<RwLock<MT>>>,
     handles: Vec<ModelHandle<dyn MeasurementModelApi>>,
-    active_measurement: Option<Arc<RwLock<MT>>>,
-    is_recording: bool,
 }
 
 #[async_trait]
@@ -39,8 +37,6 @@ impl<
     async fn clear(&mut self) -> Result<()> {
         self.measurements.clear();
         self.handles.clear();
-        self.active_measurement = None;
-        self.is_recording = false;
         Ok(())
     }
 
@@ -66,8 +62,6 @@ impl<
                 mh
             })
             .collect();
-        self.active_measurement = None;
-        self.is_recording = false;
         Ok(())
     }
 
@@ -112,7 +106,9 @@ impl<
 
 #[cfg(test)]
 mod tests {
-    use crate::components::measurement::MeasurementData;
+
+    use crate::api::controller::RecordingApi;
+    use crate::{components::measurement::MeasurementData, model::hrv::tests::get_data};
 
     use super::*;
 
@@ -157,6 +153,14 @@ mod tests {
             .join(PathBuf::from("test_measurements.json"));
         let mut storage = StorageComponent::<MeasurementData>::default();
         let measurement = Arc::new(RwLock::new(MeasurementData::default()));
+        {
+            let mut data = measurement.write().await;
+            data.start_recording().await.unwrap();
+
+            for (_, msg) in get_data(120) {
+                data.record_message(msg).await.unwrap();
+            }
+        }
         assert!(storage.store_measurement(measurement.clone()).is_ok());
         assert!(storage.store_to_file(path.clone()).await.is_ok());
 

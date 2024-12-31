@@ -206,25 +206,11 @@ impl RecordingApi for MeasurementData {
 
 #[cfg(test)]
 mod tests {
-    use rand::{Rng, SeedableRng};
     use time::macros::datetime;
 
     use super::*;
     use crate::model::bluetooth::HeartrateMessage;
-
-    fn get_data(len: usize) -> Vec<(Duration, HeartrateMessage)> {
-        let mut rng = rand::rngs::StdRng::seed_from_u64(42);
-        (0..len)
-            .map(|idx| {
-                let rr = rng.gen_range(500..1500);
-                let hr = rng.gen_range(55..65);
-                (
-                    Duration::seconds(idx as _),
-                    HeartrateMessage::from_values(hr, None, &[rr]),
-                )
-            })
-            .collect()
-    }
+    use crate::model::hrv::tests::get_data;
 
     #[test]
     fn test_default_measurement_data() {

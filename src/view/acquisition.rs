@@ -70,12 +70,6 @@ pub fn render_stats(ui: &mut egui::Ui, model: &dyn MeasurementModelApi, hr: f64)
             model.get_dfa1a().map(|val| format!("{:.2} ms", val)),
         );
         ui.end_row();
-        render_labelled_data(
-            ui,
-            "RMSSD",
-            model.get_sd2().map(|val| format!("{:.2} ms", val)),
-        );
-        ui.end_row();
     });
 }
 

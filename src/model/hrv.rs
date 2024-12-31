@@ -123,7 +123,7 @@ impl HrvAnalysisData {
             .enumerate()
             .skip(start)
             .filter_map(|(idx, ts)| {
-                let rr = &data[idx.saturating_sub(window)..idx + 1];
+                let rr = &data[idx.saturating_sub(window) + 1..idx + 1];
                 if let Ok(res) = func(rr) {
                     Some((res, *ts))
                 } else {
@@ -156,38 +156,54 @@ impl HrvAnalysisData {
             .unzip())
     }
 
-    fn calc_statistics(&mut self, start: usize, window: usize) -> Result<()> {
-        let start_idx = start.saturating_sub(window);
-        let start_win = start.saturating_sub(start_idx);
+    fn calc_statistics(&mut self, window: usize, new: usize) -> Result<()> {
+        let start_idx = self
+            .data
+            .get_data()
+            .len()
+            .saturating_sub(new.saturating_add(window));
         let (filtered_rr, filtered_ts) =
-            self.get_last_filtered(start..self.data.get_data().len())?;
+            self.get_last_filtered(start_idx..self.data.get_data().len())?;
+        // estimate start index of new data in filtered_rr assuming no outliers
+        // add 5 to have room for some outliers
+        let start_idx = filtered_rr.len().saturating_sub(new + 5);
+
         {
             let (mut new_data, ts) =
-                Self::calc_time_series(start_win, window, &filtered_rr, &filtered_ts, |win| {
+                Self::calc_time_series(start_idx, window, &filtered_rr, &filtered_ts, |win| {
                     calc_rmssd(win)
                 })?;
-            self.rmssd_ts.extend(
-                new_data
-                    .drain(..)
-                    .zip(ts)
-                    .map(|(data, ts)| [ts.as_seconds_f64(), data]),
-            );
+            let last_ts = self.rmssd_ts.last().map(|v| v[0]).unwrap_or(0.0);
+            self.rmssd_ts
+                .extend(new_data.drain(..).zip(ts).filter_map(|(data, ts)| {
+                    let ts = ts.as_seconds_f64();
+                    if ts > last_ts {
+                        Some([ts, data])
+                    } else {
+                        None
+                    }
+                }));
         }
         {
             let (mut new_data, ts) =
-                Self::calc_time_series(start_win, window, &filtered_rr, &filtered_ts, |win| {
+                Self::calc_time_series(start_idx, window, &filtered_rr, &filtered_ts, |win| {
                     calc_sdrr(win)
                 })?;
-            self.sdrr_ts.extend(
-                new_data
-                    .drain(..)
-                    .zip(ts)
-                    .map(|(data, ts)| [ts.as_seconds_f64(), data]),
-            );
+            let last_ts = self.sdrr_ts.last().map(|v| v[0]).unwrap_or(0.0);
+
+            self.sdrr_ts
+                .extend(new_data.drain(..).zip(ts).filter_map(|(data, ts)| {
+                    let ts = ts.as_seconds_f64();
+                    if ts > last_ts {
+                        Some([ts, data])
+                    } else {
+                        None
+                    }
+                }));
         }
         {
             let (mut new_data, ts) =
-                Self::calc_time_series(start_win, window, &filtered_rr, &filtered_ts, |win| {
+                Self::calc_time_series(start_idx, window, &filtered_rr, &filtered_ts, |win| {
                     let dfa = DFAnalysis::udfa(
                         win,
                         &[4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
@@ -195,44 +211,65 @@ impl HrvAnalysisData {
                     )?;
                     Ok(dfa.alpha)
                 })?;
-            self.dfa_alpha_ts.extend(
-                new_data
-                    .drain(..)
-                    .zip(ts)
-                    .map(|(data, ts)| [ts.as_seconds_f64(), data]),
-            );
+            let last_ts = self.dfa_alpha_ts.last().map(|v| v[0]).unwrap_or(0.0);
+
+            self.dfa_alpha_ts
+                .extend(new_data.drain(..).zip(ts).filter_map(|(data, ts)| {
+                    let ts = ts.as_seconds_f64();
+                    if ts > last_ts {
+                        Some([ts, data])
+                    } else {
+                        None
+                    }
+                }));
         }
         {
             let (new_data, ts) =
-                Self::calc_time_series(start_win, window, &filtered_rr, &filtered_ts, |win| {
+                Self::calc_time_series(start_idx, window, &filtered_rr, &filtered_ts, |win| {
                     let res = calc_poincare_metrics(win)?;
                     Ok((res.sd1, res.sd2))
                 })?;
             let (mut new_sd1_ts, mut new_sd2_ts): (Vec<_>, Vec<_>) = new_data.into_iter().unzip();
-            self.sd1_ts.extend(
-                new_sd1_ts
-                    .drain(..)
-                    .zip(ts.iter().cloned())
-                    .map(|(data, ts)| [ts.as_seconds_f64(), data]),
-            );
-            self.sd2_ts.extend(
-                new_sd2_ts
-                    .drain(..)
-                    .zip(ts)
-                    .map(|(data, ts)| [ts.as_seconds_f64(), data]),
-            );
+            let last_ts = self.sd1_ts.last().map(|v| v[0]).unwrap_or(0.0);
+            self.sd1_ts
+                .extend(
+                    new_sd1_ts
+                        .drain(..)
+                        .zip(ts.iter().cloned())
+                        .filter_map(|(data, ts)| {
+                            let ts = ts.as_seconds_f64();
+                            if ts > last_ts {
+                                Some([ts, data])
+                            } else {
+                                None
+                            }
+                        }),
+                );
+            self.sd2_ts
+                .extend(new_sd2_ts.drain(..).zip(ts).filter_map(|(data, ts)| {
+                    let ts = ts.as_seconds_f64();
+                    if ts > last_ts {
+                        Some([ts, data])
+                    } else {
+                        None
+                    }
+                }));
         }
         {
             let (mut new_data, ts) =
-                Self::calc_time_series(start_win, window, &filtered_rr, &filtered_ts, |rr| {
+                Self::calc_time_series(start_idx, window, &filtered_rr, &filtered_ts, |rr| {
                     Ok(60000.0 * rr.len() as f64 / rr.iter().sum::<f64>())
                 })?;
-            self.hr_ts.extend(
-                new_data
-                    .drain(..)
-                    .zip(ts)
-                    .map(|(data, ts)| [ts.as_seconds_f64(), data]),
-            );
+            let last_ts = self.hr_ts.last().map(|v| v[0]).unwrap_or(0.0);
+            self.hr_ts
+                .extend(new_data.drain(..).zip(ts).filter_map(|(data, ts)| {
+                    let ts = ts.as_seconds_f64();
+                    if ts > last_ts {
+                        Some([ts, data])
+                    } else {
+                        None
+                    }
+                }));
         }
         Ok(())
     }
@@ -272,9 +309,7 @@ impl HrvAnalysisData {
             },
         ));
 
-        if let Err(e) =
-            self.calc_statistics(self.data.get_data().len().saturating_sub(rr_len), window)
-        {
+        if let Err(e) = self.calc_statistics(window, rr_len) {
             log::warn!("error calculating statistics: {}", e);
         }
         Ok(())
@@ -358,12 +393,12 @@ impl HrvAnalysisData {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use rand::{Rng, SeedableRng};
 
     use super::*;
 
-    fn get_data(len: usize) -> Vec<(Duration, HeartrateMessage)> {
+    pub fn get_data(len: usize) -> Vec<(Duration, HeartrateMessage)> {
         let mut rng = rand::rngs::StdRng::seed_from_u64(42);
         (0..len)
             .map(|idx| {
