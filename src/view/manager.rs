@@ -177,11 +177,10 @@ impl App for ViewManager {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::components::{application::tests::{MockBluetooth}, measurement::MeasurementData};
+    use crate::components::{application::tests::MockBluetooth, measurement::MeasurementData};
 
     fn setup_test_manager() -> (ViewManager, Sender<ViewState>) {
         let (v_tx, v_rx) = tokio::sync::broadcast::channel(1);
@@ -201,7 +200,8 @@ mod tests {
     async fn test_view_manager_state_switch() {
         let (manager, v_tx) = setup_test_manager();
         v_tx.send(ViewState::Acquisition((
-            Arc::new(RwLock::new(MeasurementData::default())) as ModelHandle<dyn MeasurementModelApi>,
+            Arc::new(RwLock::new(MeasurementData::default()))
+                as ModelHandle<dyn MeasurementModelApi>,
             Arc::new(RwLock::new(MockBluetooth::new())) as ModelHandle<dyn BluetoothModelApi>,
         )))
         .unwrap();
@@ -209,5 +209,4 @@ mod tests {
         let view = manager.active_view.read().await;
         assert!(matches!(&*view, View::Acquisition(_)));
     }
-
 }
