@@ -1,7 +1,10 @@
 //! This module defines the read only API for interacting with various models.
 //! It provides interfaces for accessing data related to HRV measurements,
 //! Bluetooth adapters, and stored acquisitions.
-use crate::model::{bluetooth::{AdapterDescriptor, DeviceDescriptor, HeartrateMessage}, hrv::PoincarePoints};
+use crate::model::{
+    bluetooth::{AdapterDescriptor, DeviceDescriptor, HeartrateMessage},
+    hrv::PoincarePoints,
+};
 use anyhow::Result;
 use btleplug::api::BDAddr;
 use std::{fmt::Debug, sync::Arc};

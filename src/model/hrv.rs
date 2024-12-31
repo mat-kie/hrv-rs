@@ -11,162 +11,27 @@ use anyhow::{anyhow, Result};
 use hrv_algos::analysis::dfa::{DFAnalysis, DetrendStrategy};
 use hrv_algos::analysis::nonlinear::calc_poincare_metrics;
 use hrv_algos::analysis::time::{calc_rmssd, calc_sdrr};
-use hrv_algos::preprocessing::noise::ApplyDithering;
-use hrv_algos::preprocessing::outliers::{classify_rr_values, OutlierType};
+use hrv_algos::preprocessing::outliers::{MovingQuantileFilter, OutlierClassifier};
 
 use rayon::iter::{
     IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator, ParallelIterator,
 };
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
-use std::mem::swap;
+use std::ops::Range;
 use time::Duration;
 
 /// Represents inliers and outliers on the Poincare plot.
 pub type PoincarePoints = (Vec<[f64; 2]>, Vec<[f64; 2]>);
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-struct RuntimeRecordingData {
-    /// RR intervals in milliseconds.
-    rr_intervals: Vec<f64>,
-    /// RR interval calssification.
-    rr_classification: Vec<OutlierType>,
-    /// Cumulative time for each RR interval.
-    rr_time: Vec<Duration>,
-    outlier_filter: f64,
-}
-impl RuntimeRecordingData {
-    pub fn add_rr(&mut self, rr: &[f64]) -> Result<()> {
-        {
-            let mut new_ts: Vec<_> = rr
-                .iter()
-                .scan(
-                    *self.rr_time.last().unwrap_or(&Duration::default()),
-                    |acc, &rr| {
-                        *acc += Duration::milliseconds(rr as i64);
-                        Some(*acc)
-                    },
-                )
-                .collect();
-            self.rr_time.append(&mut new_ts);
-            let mut appended: Vec<_> = rr.iter().copied().apply_dithering(None).collect();
-            self.rr_intervals.append(&mut appended);
-        }
-        self.update_classification()?;
-        Ok(())
-    }
-
-    pub fn update_classification(&mut self) -> Result<()> {
-        const ANALYSIS_WINDOW: usize = 91;
-        // classification uses a 91 item rolling quantile
-        // take 91 last rr, update the last 46 elements classification
-        let win_start = self.rr_classification.len().saturating_sub(ANALYSIS_WINDOW);
-        let cutoff = self
-            .rr_classification
-            .len()
-            .saturating_sub(ANALYSIS_WINDOW / 2);
-        let added_rr = self
-            .rr_intervals
-            .len()
-            .saturating_sub(self.rr_classification.len());
-        let data = &self.rr_intervals[win_start..];
-        if data.is_empty() {
-            return Ok(());
-        }
-        let new_class = if data.len() == 1 {
-            vec![OutlierType::None]
-        } else {
-            classify_rr_values(data, None, None, Some(self.outlier_filter))?
-        };
-
-        let mut added_classes = new_class[new_class.len().saturating_sub(added_rr)..].to_vec();
-        self.rr_classification.append(&mut added_classes);
-        //  update the last 46 elements classification
-        for (a, b) in self.rr_classification.iter_mut().skip(cutoff).zip(
-            new_class
-                .iter()
-                .skip(new_class.len().saturating_sub(ANALYSIS_WINDOW / 2)),
-        ) {
-            *a = *b;
-        }
-        Ok(())
-    }
-
-    pub fn set_filter(&mut self, filter: f64) -> Result<()> {
-        if filter != self.outlier_filter {
-            self.outlier_filter = filter;
-            let mut old = Vec::default();
-            swap(&mut old, &mut self.rr_classification);
-            let res = self.update_classification();
-            if res.is_err() {
-                self.rr_classification = old;
-                return res;
-            } else {
-                return Ok(());
-            }
-        }
-        Ok(())
-    }
-
-    pub fn get_rr(&self) -> &[f64] {
-        &self.rr_intervals
-    }
-
-    fn get_filtered<T: Send + Sync + Clone>(&self, data: &[T], start_offset: usize) -> Vec<T> {
-        data.par_iter()
-            .zip(&self.rr_classification)
-            .skip(start_offset)
-            .filter_map(|(rr, class)| {
-                if matches!(class, OutlierType::None) {
-                    Some(rr.clone())
-                } else {
-                    None
-                }
-            })
-            .collect()
-    }
-
-    pub fn get_filtered_rr(&self, start_offset: usize) -> Vec<f64> {
-        self.get_filtered(&self.rr_intervals, start_offset)
-    }
-    pub fn get_filtered_ts(&self, start_offset: usize) -> Vec<Duration> {
-        self.get_filtered(&self.rr_time, start_offset)
-    }
-    pub fn get_poincare(&self, samples: Option<usize>) -> Result<PoincarePoints> {
-        if self.rr_intervals.len() < 2 {
-            return Err(anyhow!("too few rr intervals for poincare points"));
-        }
-        let start = samples
-            .map(|s| self.rr_intervals.len().saturating_sub(s))
-            .unwrap_or(0);
-        let mut inliers = Vec::with_capacity(samples.unwrap_or(self.rr_intervals.len()));
-        let mut outliers = Vec::with_capacity(samples.unwrap_or(self.rr_intervals.len()));
-        for (rr, classes) in self
-            .rr_intervals
-            .windows(2)
-            .zip(self.rr_classification.windows(2))
-            .skip(start)
-        {
-            if classes[0].is_outlier() || classes[1].is_outlier() {
-                outliers.push([rr[0], rr[1]]);
-            } else {
-                inliers.push([rr[0], rr[1]]);
-            }
-        }
-        inliers.shrink_to_fit();
-        outliers.shrink_to_fit();
-
-        Ok((inliers, outliers))
-    }
-}
-
 /// Manages runtime data related to HRV analysis.
 ///
 /// This structure collects RR intervals, heart rate values, and timestamps.
 /// It processes incoming heart rate measurements and computes HRV statistics.
-#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HrvAnalysisData {
-    data: RuntimeRecordingData,
+    data: MovingQuantileFilter,
+    rr_timepoints: Vec<Duration>,
     /// Time series of RMSSD values.
     rmssd_ts: Vec<[f64; 2]>,
     /// Time series of SDRR values.
@@ -179,6 +44,21 @@ pub struct HrvAnalysisData {
     hr_ts: Vec<[f64; 2]>,
     /// Time series of DFA alpha values
     dfa_alpha_ts: Vec<[f64; 2]>,
+}
+
+impl Default for HrvAnalysisData {
+    fn default() -> Self {
+        Self {
+            data: MovingQuantileFilter::new(None, None, None),
+            rr_timepoints: Vec::new(),
+            rmssd_ts: Vec::new(),
+            sdrr_ts: Vec::new(),
+            sd1_ts: Vec::new(),
+            sd2_ts: Vec::new(),
+            hr_ts: Vec::new(),
+            dfa_alpha_ts: Vec::new(),
+        }
+    }
 }
 
 /// Represents data collected during an HRV (Heart Rate Variability) session.
@@ -214,7 +94,7 @@ impl HrvAnalysisData {
         if data.is_empty() {
             return Ok(new);
         }
-        new.data.set_filter(outlier_filter)?;
+        new.data.set_quantile_scale(outlier_filter)?;
         new.add_measurements(data, window.unwrap_or(usize::MAX))?;
 
         Ok(new)
@@ -255,29 +135,32 @@ impl HrvAnalysisData {
 
     pub fn add_measurement(&mut self, hrs_msg: &HeartrateMessage, window: usize) -> Result<()> {
         // add rr point
-        let new_rr: Vec<f64> = hrs_msg
-            .get_rr_intervals()
-            .iter()
-            .map(|&rr| f64::from(rr))
-            .collect();
-        let new_rr_len = new_rr.len();
-        if new_rr.is_empty() {
-            return Ok(());
+        self.add_measurements(&[(Duration::default(), *hrs_msg)], window)
+    }
+
+    fn get_last_filtered(&self, window: Range<usize>) -> Result<(Vec<f64>, Vec<Duration>)> {
+        if window.end > self.data.get_data().len() {
+            return Err(anyhow!("window end out of bounds"));
         }
-        self.data.add_rr(&new_rr)?;
-        if let Err(e) =
-            self.calc_statistics(self.data.get_rr().len().saturating_sub(new_rr_len), window)
-        {
-            log::warn!("error calculating statistics: {}", e);
-        }
-        Ok(())
+        let data = self.data.get_data();
+        let classes = self.data.get_classification();
+        Ok(window
+            .into_par_iter()
+            .filter_map(|idx| {
+                if classes[idx].is_outlier() {
+                    None
+                } else {
+                    Some((data[idx], self.rr_timepoints[idx]))
+                }
+            })
+            .unzip())
     }
 
     fn calc_statistics(&mut self, start: usize, window: usize) -> Result<()> {
-        let so = start.saturating_sub(window);
-        let start_win = start.saturating_sub(so);
-        let filtered_rr = self.data.get_filtered_rr(so);
-        let filtered_ts = self.data.get_filtered_ts(so);
+        let start_idx = start.saturating_sub(window);
+        let start_win = start.saturating_sub(start_idx);
+        let (filtered_rr, filtered_ts) =
+            self.get_last_filtered(start..self.data.get_data().len())?;
         {
             let (mut new_data, ts) =
                 Self::calc_time_series(start_win, window, &filtered_rr, &filtered_ts, |win| {
@@ -380,10 +263,17 @@ impl HrvAnalysisData {
             .flatten()
             .collect();
         let rr_len = rr.len();
-        self.data.add_rr(&rr)?;
+        self.data.add_data(&rr)?;
+        self.rr_timepoints.extend(rr.iter().scan(
+            *self.rr_timepoints.last().unwrap_or(&Duration::default()),
+            |acc, &rr| {
+                *acc += Duration::milliseconds(rr as i64);
+                Some(*acc)
+            },
+        ));
 
         if let Err(e) =
-            self.calc_statistics(self.data.get_rr().len().saturating_sub(rr_len), window)
+            self.calc_statistics(self.data.get_data().len().saturating_sub(rr_len), window)
         {
             log::warn!("error calculating statistics: {}", e);
         }
@@ -397,7 +287,25 @@ impl HrvAnalysisData {
     /// A tuple containing two lists of `[x, y]` points: the first list contains inlier points,
     /// and the second list contains outlier points.
     pub fn get_poincare(&self, window: Option<usize>) -> Result<PoincarePoints> {
-        self.data.get_poincare(window)
+        let data = self.data.get_data();
+        let classes = self.data.get_classification();
+        if data.len() < 2 {
+            return Err(anyhow!("too few rr intervals for poincare points"));
+        }
+        let start = window.map(|s| data.len().saturating_sub(s)).unwrap_or(0);
+        let mut inliers = Vec::with_capacity(window.unwrap_or(data.len()));
+        let mut outliers = Vec::with_capacity(window.unwrap_or(data.len()));
+        for (rr, classes) in data.windows(2).zip(classes.windows(2)).skip(start) {
+            if classes[0].is_outlier() || classes[1].is_outlier() {
+                outliers.push([rr[0], rr[1]]);
+            } else {
+                inliers.push([rr[0], rr[1]]);
+            }
+        }
+        inliers.shrink_to_fit();
+        outliers.shrink_to_fit();
+
+        Ok((inliers, outliers))
     }
 
     /// Checks if there is sufficient data for HRV calculations.
@@ -407,7 +315,7 @@ impl HrvAnalysisData {
     /// `true` if there are enough RR intervals to perform HRV analysis; `false` otherwise.
     #[allow(dead_code)]
     pub fn has_sufficient_data(&self) -> bool {
-        self.data.get_rr().len() >= 4
+        self.data.get_data().len() >= 4
     }
 
     pub fn get_rmssd_ts(&self) -> &[[f64; 2]] {
@@ -480,72 +388,5 @@ mod tests {
         ];
         let session_data = HrvAnalysisData::from_acquisition(&data, None, 50.0).unwrap();
         assert!(session_data.has_sufficient_data());
-    }
-
-    #[test]
-    fn test_runtime_recording_data_new() {
-        let rr_data = vec![800.0, 810.0, 790.0];
-        let outlier_filter = 50.0;
-        let mut runtime_data = RuntimeRecordingData::default();
-        runtime_data.set_filter(outlier_filter).unwrap();
-        runtime_data.add_rr(&rr_data).unwrap();
-        rr_data
-            .iter()
-            .zip(runtime_data.rr_intervals.iter())
-            .for_each(|(a, b)| {
-                assert!((a - b).abs() < 1.0);
-            });
-        assert_eq!(runtime_data.outlier_filter, outlier_filter);
-    }
-
-    #[test]
-    fn test_runtime_recording_data_add_rr() {
-        let mut runtime_data = RuntimeRecordingData::default();
-        let rr_data = vec![800.0, 810.0, 790.0];
-        runtime_data.add_rr(&rr_data).unwrap();
-        rr_data
-            .iter()
-            .zip(runtime_data.rr_intervals.iter())
-            .for_each(|(a, b)| {
-                assert!((a - b).abs() < 1.0);
-            });
-    }
-
-    #[test]
-    fn test_runtime_recording_data_update_classification() {
-        let mut runtime_data = RuntimeRecordingData::default();
-        runtime_data.set_filter(5.0).unwrap();
-        let rr_data = vec![800.0, 810.0, 790.0];
-        runtime_data.add_rr(&rr_data).unwrap();
-        assert_eq!(runtime_data.rr_classification.len(), rr_data.len());
-    }
-
-    #[test]
-    fn test_runtime_recording_data_get_filtered_rr() {
-        let mut runtime_data = RuntimeRecordingData::default();
-        runtime_data.set_filter(5.0).unwrap();
-        let rr_data = vec![800.0, 810.0, 790.0];
-        runtime_data.add_rr(&rr_data).unwrap();
-        let filtered_rr = runtime_data.get_filtered_rr(0);
-        assert_eq!(filtered_rr.len(), rr_data.len());
-        assert_eq!(filtered_rr, runtime_data.rr_intervals);
-    }
-    #[test]
-    fn test_runtime_recording_data_get_filtered_rr_all_out() {
-        let mut runtime_data = RuntimeRecordingData::default();
-        let rr_data = vec![800.0, 810.0, 790.0];
-        runtime_data.add_rr(&rr_data).unwrap();
-        let filtered_rr = runtime_data.get_filtered_rr(0);
-        assert!(filtered_rr.is_empty());
-    }
-    #[test]
-    fn test_runtime_recording_data_get_poincare() {
-        let mut runtime_data = RuntimeRecordingData::default();
-        runtime_data.set_filter(5.0).unwrap();
-        let rr_data = vec![800.0, 810.0, 790.0];
-        runtime_data.add_rr(&rr_data).unwrap();
-        let (inliers, outliers) = runtime_data.get_poincare(None).unwrap();
-        assert!(!inliers.is_empty());
-        assert!(outliers.is_empty());
     }
 }

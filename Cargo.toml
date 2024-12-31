@@ -34,7 +34,7 @@ typetag = "0.2.18"
 anyhow = { version = "1.0.94", features = ["backtrace"] }
 rust-fsm = "0.7.0"
 event_bridge = "0.3.1"
-hrv-algos={ version = "0.3.0", features = ["serde"] }
+hrv-algos={ version = "0.4.2", features = ["serde"] }
 rayon = "1.10.0"
 [dev-dependencies]
 mockall = "0.13.1"

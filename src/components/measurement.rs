@@ -214,7 +214,7 @@ mod tests {
     fn test_default_measurement_data() {
         let data = MeasurementData::default();
         assert!(data.measurements.is_empty());
-        assert_eq!(data.outlier_filter, 100.0);
+        assert_eq!(data.outlier_filter, 5.0);
         assert!(data.window.is_none());
     }
 
@@ -305,7 +305,7 @@ mod tests {
     #[test]
     fn test_get_outlier_filter_value() {
         let data = MeasurementData::default();
-        assert_eq!(data.get_outlier_filter_value(), 100.0);
+        assert_eq!(data.get_outlier_filter_value(), 5.0);
     }
 
     #[test]
