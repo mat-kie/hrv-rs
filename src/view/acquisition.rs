@@ -7,7 +7,6 @@ use eframe::egui;
 use egui::Color32;
 use egui_plot::{Legend, Plot, Points};
 use std::ops::RangeInclusive;
-use time::Duration;
 
 use crate::{
     api::{
@@ -15,10 +14,17 @@ use crate::{
         model::{BluetoothModelApi, MeasurementModelApi, ModelHandle},
         view::ViewApi,
     },
-    core::events::{
-        AppEvent, BluetoothEvent, MeasurementEvent, RecordingEvent, StateChangeEvent, StorageEvent,
-    },
+    core::events::{AppEvent, BluetoothEvent, MeasurementEvent, RecordingEvent, StateChangeEvent},
 };
+
+fn render_labelled_data(ui: &mut egui::Ui, label: &str, data: Option<String>) {
+    if let Some(data) = data {
+        let desc = egui::Label::new(label);
+        ui.add(desc);
+        let val = egui::Label::new(data);
+        ui.add(val);
+    }
+}
 
 pub fn render_stats(ui: &mut egui::Ui, model: &dyn MeasurementModelApi, hr: f64) {
     ui.heading("Statistics");
@@ -34,29 +40,36 @@ pub fn render_stats(ui: &mut egui::Ui, model: &dyn MeasurementModelApi, hr: f64)
         let val = egui::Label::new(format!("{} s", model.get_elapsed_time().whole_seconds()));
         ui.add(val);
         ui.end_row();
-
-        if let Some(stats) = model.get_hrv_stats() {
-            let desc = egui::Label::new("RMSSD [ms]");
-            ui.add(desc);
-            let val = egui::Label::new(format!("{:.2} ms", stats.rmssd));
-            ui.add(val);
-            ui.end_row();
-            let desc = egui::Label::new("SDRR [ms]");
-            ui.add(desc);
-            let val = egui::Label::new(format!("{:.2} ms", stats.sdrr));
-            ui.add(val);
-            ui.end_row();
-            let desc = egui::Label::new("SD1 [ms]");
-            ui.add(desc);
-            let val = egui::Label::new(format!("{:.2} ms", stats.sd1));
-            ui.add(val);
-            ui.end_row();
-            let desc = egui::Label::new("SD2 [ms]");
-            ui.add(desc);
-            let val = egui::Label::new(format!("{:.2} ms", stats.sd2));
-            ui.add(val);
-            ui.end_row();
-        }
+        render_labelled_data(
+            ui,
+            "RMSSD",
+            model.get_rmssd().map(|val| format!("{:.2} ms", val)),
+        );
+        ui.end_row();
+        render_labelled_data(
+            ui,
+            "SDRR",
+            model.get_sdrr().map(|val| format!("{:.2} ms", val)),
+        );
+        ui.end_row();
+        render_labelled_data(
+            ui,
+            "SD1",
+            model.get_sd1().map(|val| format!("{:.2} ms", val)),
+        );
+        ui.end_row();
+        render_labelled_data(
+            ui,
+            "SD2",
+            model.get_sd2().map(|val| format!("{:.2} ms", val)),
+        );
+        ui.end_row();
+        render_labelled_data(
+            ui,
+            "DFA 1 alpha",
+            model.get_dfa1a().map(|val| format!("{:.2} ms", val)),
+        );
+        ui.end_row();
     });
 }
 
@@ -65,24 +78,35 @@ pub fn render_time_series(ui: &mut egui::Ui, model: &dyn MeasurementModelApi) {
 
     plot.show(ui, |plot_ui| {
         plot_ui.line(
-            egui_plot::Line::new(model.get_session_data().rmssd_ts.clone())
+            egui_plot::Line::new(model.get_rmssd_ts())
                 .name("RMSSD [ms]")
                 .color(Color32::RED),
         );
         plot_ui.line(
-            egui_plot::Line::new(model.get_session_data().sd1_ts.clone())
+            egui_plot::Line::new(model.get_sdrr_ts())
+                .name("SDRR [ms]")
+                .color(Color32::DARK_GREEN),
+        );
+        plot_ui.line(
+            egui_plot::Line::new(model.get_sd1_ts())
                 .name("SD1 [ms]")
                 .color(Color32::BLUE),
         );
         plot_ui.line(
-            egui_plot::Line::new(model.get_session_data().sd2_ts.clone())
+            egui_plot::Line::new(model.get_sd2_ts())
                 .name("SD2 [ms]")
                 .color(Color32::YELLOW),
         );
         plot_ui.line(
-            egui_plot::Line::new(model.get_session_data().hr_ts.clone())
+            egui_plot::Line::new(model.get_hr_ts())
                 .name("HR [1/min]")
                 .color(Color32::GREEN),
+        );
+
+        plot_ui.line(
+            egui_plot::Line::new(model.get_dfa1a_ts())
+                .name("DFA 1 alpha")
+                .color(Color32::KHAKI),
         );
     });
 }
@@ -93,13 +117,22 @@ pub fn render_poincare_plot(ui: &mut egui::Ui, model: &dyn MeasurementModelApi) 
         .data_aspect(1.0);
 
     plot.show(ui, |plot_ui| {
-        plot_ui.points(
-            Points::new(model.get_poincare_points())
-                .name("R-R Intervals")
-                .shape(egui_plot::MarkerShape::Diamond)
-                .color(Color32::RED)
-                .radius(5.0),
-        );
+        if let Ok((inliers, outliers)) = model.get_poincare_points() {
+            plot_ui.points(
+                Points::new(inliers)
+                    .name("R-R")
+                    .shape(egui_plot::MarkerShape::Diamond)
+                    .color(Color32::RED)
+                    .radius(5.0),
+            );
+            plot_ui.points(
+                Points::new(outliers)
+                    .name("R-R outliers")
+                    .shape(egui_plot::MarkerShape::Diamond)
+                    .color(Color32::GRAY)
+                    .radius(5.0),
+            );
+        }
     });
 }
 
@@ -174,25 +207,20 @@ pub fn render_filter_params<F: Fn(AppEvent)>(
 ) {
     ui.heading("Filter parameters:");
     egui::Grid::new("a grid").num_columns(2).show(ui, |ui| {
-        let mut seconds = model
-            .get_stats_window()
-            .unwrap_or(&Duration::minutes(5))
-            .as_seconds_f64();
-        let desc = egui::Label::new("time window [s]");
+        let mut samples = model.get_stats_window().unwrap_or(usize::MAX).to_owned();
+        let desc = egui::Label::new("window size [# samples]");
         ui.add(desc);
-        let slider = egui::Slider::new(&mut seconds, RangeInclusive::new(0.0, 600.0));
+        let slider = egui::Slider::new(&mut samples, RangeInclusive::new(30, 300));
         if ui.add(slider).changed() {
-            if let Some(new_duration) = Duration::checked_seconds_f64(seconds) {
-                publish(AppEvent::Measurement(MeasurementEvent::SetStatsWindow(
-                    new_duration,
-                )));
-            }
+            publish(AppEvent::Measurement(MeasurementEvent::SetStatsWindow(
+                samples,
+            )));
         }
         ui.end_row();
         let mut outlier_value = model.get_outlier_filter_value();
-        let desc = egui::Label::new("outlier filter");
+        let desc = egui::Label::new("outlier filter scale");
         ui.add(desc);
-        let slider = egui::Slider::new(&mut outlier_value, RangeInclusive::new(0.1, 400.0));
+        let slider = egui::Slider::new(&mut outlier_value, RangeInclusive::new(0.5, 10.0));
         if ui.add(slider).changed() {
             publish(AppEvent::Measurement(MeasurementEvent::SetOutlierFilter(
                 OutlierFilter::MovingMAD {
@@ -239,12 +267,11 @@ impl AcquisitionView {
             }
             if ui.button("discard").clicked() {
                 publish(AppEvent::Recording(RecordingEvent::StopRecording));
-                publish(AppEvent::AppState(StateChangeEvent::InitialState));
+                publish(AppEvent::AppState(StateChangeEvent::DiscardRecording));
             }
             if ui.button("Save").clicked() {
                 publish(AppEvent::Recording(RecordingEvent::StopRecording));
-                publish(AppEvent::Storage(StorageEvent::StoreRecordedMeasurement));
-                publish(AppEvent::AppState(StateChangeEvent::InitialState));
+                publish(AppEvent::AppState(StateChangeEvent::StoreRecording));
             }
         });
     }

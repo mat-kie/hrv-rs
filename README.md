@@ -1,7 +1,7 @@
 # Hrv-rs
+
 [![Pipeline Status](https://github.com/mat-kie/hrv-rs/actions/workflows/rust.yml/badge.svg)](https://github.com/mat-kie/hrv-rs/actions/workflows/rust.yml)
 [![Coverage](https://codecov.io/gh/mat-kie/hrv-rs/branch/main/graph/badge.svg?token=YOUR_CODECOV_TOKEN)](https://codecov.io/gh/mat-kie/hrv-rs)
-
 
 **Hrv-rs** is a Rust-based application designed to analyze Heart Rate Variability (HRV) using Bluetooth Low Energy (BLE) chest straps. 
 
@@ -10,6 +10,7 @@
 **This project is in a very early stage and is not intended for any medical applications.**
 
 ## Features
+
 - **Bluetooth Connectivity**:
   - Scan and connect to BLE chest straps that provide R-R interval data.
 - **HRV Analysis**:
@@ -17,6 +18,7 @@
   - Visualize HRV statistics in real-time.
 
 ## HRV Metrics
+
 - **RMSSD**: Root Mean Square of Successive Differences between R-R intervals.
 - **SDRR**: Standard Deviation of R-R intervals.
 - **SD1/SD2**: Short- and long-term HRV metrics derived from Poincaré plots.
@@ -25,10 +27,12 @@
 ## Getting Started
 
 ### Prerequisites
+
 - A BLE-compatible chest strap for HRV measurement.
 - A system with BLE support.
 
 ### Installation
+
 1. Clone the repository:
    ```bash
    git clone https://github.com/mat-kie/hrv-rs.git
@@ -48,6 +52,7 @@
 ## Code Structure
 
 ### Architecture
+
 The project uses a modular, event-driven MVC architecture.
 
 ### Modules

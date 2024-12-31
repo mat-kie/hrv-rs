@@ -6,35 +6,35 @@
 use crate::{
     api::{
         controller::{BluetoothApi, MeasurementApi, RecordingApi, StorageApi, StorageEventApi},
-        model::{BluetoothModelApi, MeasurementModelApi, ModelHandle, StorageModelApi},
+        model::{BluetoothModelApi, ModelHandle, StorageModelApi},
     },
     core::events::{AppEvent, StateChangeEvent},
     view::manager::{ViewManager, ViewState},
 };
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use log::{error, trace};
-use std::{marker::PhantomData, sync::Arc};
+use std::sync::Arc;
 use tokio::sync::{broadcast::Sender, RwLock};
 
 /// Main application controller.
 ///
 /// This structure manages the lifecycle of other controllers and handles application-level events.
 pub struct AppController<
-    MT: MeasurementApi + 'static,
-    ST: StorageApi<MT> + RecordingApi + Send + 'static,
+    MT: MeasurementApi + RecordingApi + 'static,
+    ST: StorageApi<MT> + Send + 'static,
     BT: BluetoothApi + RecordingApi + 'static,
 > {
     view_tx: Sender<ViewState>,
     event_bus: Sender<AppEvent>,
     ble_controller: Arc<RwLock<BT>>,
     acq_controller: Arc<RwLock<ST>>,
-    _marker: PhantomData<MT>,
+    active_measurement: Option<Arc<RwLock<MT>>>,
 }
 
 impl<
-        MT: MeasurementApi,
-        ST: StorageApi<MT> + StorageEventApi + StorageModelApi + RecordingApi + Send + 'static,
+        MT: MeasurementApi + RecordingApi + Default + 'static,
+        ST: StorageApi<MT> + StorageEventApi + StorageModelApi + Send + 'static,
         BT: BluetoothApi + RecordingApi + 'static,
     > AppController<MT, ST, BT>
 {
@@ -56,7 +56,7 @@ impl<
             event_bus: event_bus.clone(),
             ble_controller: Arc::new(RwLock::new(ble_controller)),
             acq_controller: Arc::new(RwLock::new(acq_controller)),
-            _marker: Default::default(),
+            active_measurement: None,
         }
     }
 
@@ -79,27 +79,40 @@ impl<
                     None,
                 )))?;
             }
+            StateChangeEvent::DiscardRecording => {
+                self.active_measurement = None;
+                self.view_tx.send(ViewState::Overview((
+                    {
+                        let mh: Arc<RwLock<dyn StorageModelApi>> = self.acq_controller.clone();
+                        ModelHandle::from(mh)
+                    },
+                    None,
+                )))?;
+            }
+            StateChangeEvent::StoreRecording => {
+                if let Some(measurement) = self.active_measurement.as_ref() {
+                    let mut lck = self.acq_controller.write().await;
+                    lck.store_measurement(measurement.clone())?;
+                    self.view_tx.send(ViewState::Overview((
+                        ModelHandle::from(self.acq_controller.clone()),
+                        Some(measurement.clone()),
+                    )))?;
+                }
+            }
             StateChangeEvent::ToRecordingState => {
                 // move to recording view
-                let mut lck = self.acq_controller.write().await;
-                lck.new_measurement().await?;
-                let m: ModelHandle<dyn MeasurementModelApi> = lck
-                    .get_active_measurement()
-                    .clone()
-                    .ok_or(anyhow!("No active measurement"))?;
+                let m: Arc<RwLock<MT>> = Arc::new(RwLock::new(MT::default()));
+                self.active_measurement = Some(m.clone());
                 let bm: ModelHandle<dyn BluetoothModelApi> = self.ble_controller.clone();
                 self.view_tx.send(ViewState::Acquisition((m, bm)))?;
             }
             StateChangeEvent::SelectMeasurement(idx) => {
-                let lck = self.acq_controller.read().await;
-                let acqs = lck.get_acquisitions();
-                if let Some(acq) = acqs.get(idx) {
-                    let mh: Arc<RwLock<dyn StorageModelApi>> = self.acq_controller.clone();
-                    self.view_tx.send(ViewState::Overview((
-                        ModelHandle::from(mh),
-                        Some(acq.clone()),
-                    )))?;
-                }
+                let acq = self.acq_controller.read().await.get_measurement(idx)?;
+                self.active_measurement = Some(acq.clone());
+                self.view_tx.send(ViewState::Overview((
+                    ModelHandle::from(self.acq_controller.clone()),
+                    Some(acq.clone()),
+                )))?;
             }
         }
         Ok(())
@@ -113,8 +126,7 @@ impl<
                 event.forward_to(&mut *lck).await
             }
             AppEvent::Measurement(event) => {
-                let mut lck = self.acq_controller.write().await;
-                if let Some(measurement) = lck.get_active_measurement() {
+                if let Some(measurement) = self.active_measurement.as_ref() {
                     let mut lck = measurement.write().await;
                     event.forward_to(&mut *lck).await
                 } else {
@@ -122,10 +134,11 @@ impl<
                 }
             }
             AppEvent::Recording(event) => {
-                {
-                    let mut acq_lock = self.acq_controller.write().await;
-                    event.clone().forward_to(&mut *acq_lock).await?;
+                if let Some(measurement) = self.active_measurement.as_ref() {
+                    let mut lck = measurement.write().await;
+                    event.clone().forward_to(&mut *lck).await?
                 }
+
                 {
                     let mut ble_lock = self.ble_controller.write().await;
                     event.forward_to(&mut *ble_lock).await
@@ -179,23 +192,24 @@ impl<
 }
 
 #[cfg(test)]
-mod tests {
-    use std::path::PathBuf;
-
+pub mod tests {
     use super::*;
+    use crate::api::model::MeasurementModelApi;
     use crate::components::measurement::MeasurementData;
     use crate::core::events::{
         BluetoothEvent, MeasurementEvent, RecordingEvent, StateChangeEvent, StorageEvent,
     };
-    use crate::model::bluetooth::{AdapterDescriptor, DeviceDescriptor};
-
+    use crate::model::bluetooth::{AdapterDescriptor, DeviceDescriptor, HeartrateMessage};
+    use anyhow::anyhow;
     use async_trait::async_trait;
     use btleplug::api::BDAddr;
     use mockall::mock;
-    use time::Duration;
+    use mockall::predicate::{always, eq};
+    use std::path::PathBuf;
     use tokio::sync::broadcast;
+
     mock! {
-        Bluetooth {}
+        pub Bluetooth {}
         impl std::fmt::Debug for Bluetooth{
             fn fmt<'a>(&self, f: &mut std::fmt::Formatter<'a>) -> std::fmt::Result;
         }
@@ -226,7 +240,7 @@ mod tests {
     }
 
     mock! {
-        Storage{}
+        pub Storage{}
         impl std::fmt::Debug for Storage{
             fn fmt<'a>(&self, f: &mut std::fmt::Formatter<'a>) -> std::fmt::Result;
         }
@@ -235,7 +249,8 @@ mod tests {
         }
 
         impl StorageApi<MeasurementData> for Storage{
-            fn get_active_measurement(&mut self) -> &Option<Arc<RwLock<MeasurementData>>>;
+            fn get_measurement(& self, index:usize) -> Result<Arc<RwLock<MeasurementData>>>;
+            fn store_measurement(&mut self, measurement: Arc<RwLock<MeasurementData>>) -> Result<()>;
         }
 
         #[async_trait]
@@ -243,8 +258,6 @@ mod tests {
             async fn clear(&mut self) -> Result<()>;
             async fn load_from_file(&mut self, path: PathBuf) -> Result<()>;
             async fn store_to_file(&mut self, path: PathBuf) -> Result<()>;
-            async fn new_measurement(&mut self) -> Result<()>;
-            async fn store_recorded_measurement(&mut self) -> Result<()>;
         }
 
         #[async_trait]
@@ -272,14 +285,7 @@ mod tests {
     async fn test_app_controller_recording_state() {
         let (event_bus_tx, _) = broadcast::channel(16);
         let ble_controller = MockBluetooth::new();
-        let mut acq_controller = MockStorage::new();
-
-        // Setup mocks
-        let mock_measurement = Arc::new(RwLock::new(MeasurementData::default()));
-        acq_controller.expect_new_measurement().returning(|| Ok(()));
-        acq_controller
-            .expect_get_active_measurement()
-            .return_const(Some(mock_measurement.clone()));
+        let acq_controller = MockStorage::new();
 
         let mut app_controller =
             AppController::new(ble_controller, acq_controller, event_bus_tx.clone());
@@ -298,14 +304,11 @@ mod tests {
         let mut acq_controller = MockStorage::new();
 
         let mock_measurement = Arc::new(RwLock::new(MeasurementData::default()));
-        let measurements = vec![{
-            let m: Arc<RwLock<dyn MeasurementModelApi>> = mock_measurement.clone();
-            m
-        }];
 
         acq_controller
-            .expect_get_acquisitions()
-            .return_const(measurements);
+            .expect_get_measurement()
+            .with(eq(0usize))
+            .returning(move |_| Ok(mock_measurement.clone()));
 
         let mut app_controller =
             AppController::new(ble_controller, acq_controller, event_bus_tx.clone());
@@ -340,22 +343,20 @@ mod tests {
     async fn test_app_controller_measurement_event() {
         let (event_bus_tx, _) = broadcast::channel(16);
         let ble_controller = MockBluetooth::new();
-        let mut acq_controller = MockStorage::new();
+        let acq_controller = MockStorage::new();
 
         let mock_measurement = Arc::new(RwLock::new(MeasurementData::default()));
-        acq_controller
-            .expect_get_active_measurement()
-            .return_const(Some(mock_measurement.clone()));
 
         let mut app_controller =
             AppController::new(ble_controller, acq_controller, event_bus_tx.clone());
+        app_controller.active_measurement = Some(mock_measurement.clone());
 
-        let event = AppEvent::Measurement(MeasurementEvent::SetStatsWindow(Duration::minutes(1)));
+        let event = AppEvent::Measurement(MeasurementEvent::SetStatsWindow(60));
         let result = app_controller.dispatch_event(event).await;
         assert!(result.is_ok());
         assert_eq!(
             mock_measurement.read().await.get_stats_window().unwrap(),
-            &Duration::minutes(1)
+            60
         );
     }
 
@@ -406,5 +407,198 @@ mod tests {
         let event = AppEvent::Storage(StorageEvent::Clear);
         let result = app_controller.dispatch_event(event).await;
         assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_app_controller_store_recording_no_active_measurement() {
+        // Covers lines when active_measurement is None
+        let (event_bus_tx, _) = broadcast::channel(16);
+        let ble_controller = MockBluetooth::new();
+        let acq_controller = MockStorage::new();
+
+        let mut app_controller =
+            AppController::new(ble_controller, acq_controller, event_bus_tx.clone());
+
+        // Attempt to store recording with no active measurement
+        let result = app_controller
+            .handle_state_events(StateChangeEvent::StoreRecording)
+            .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_app_controller_store_recording() {
+        // Covers discarding a measurement if active_measurement is Some
+        let (event_bus_tx, _) = broadcast::channel(16);
+        let mut ble_controller = MockBluetooth::new();
+        let mut acq_controller = MockStorage::new();
+        ble_controller
+            .expect_start_recording()
+            .once()
+            .returning(|| Ok(()));
+        ble_controller
+            .expect_stop_recording()
+            .once()
+            .returning(|| Ok(()));
+        let measurement = Arc::new(RwLock::new(MeasurementData::default()));
+        acq_controller
+            .expect_store_measurement()
+            .once()
+            .returning(move |_| Ok(()));
+
+        let mut app_controller =
+            AppController::new(ble_controller, acq_controller, event_bus_tx.clone());
+        // needed to have an open view channel
+        let _view = app_controller.get_viewmanager();
+
+        app_controller.active_measurement = Some(measurement);
+
+        assert!(app_controller
+            .handle_state_events(StateChangeEvent::ToRecordingState)
+            .await
+            .is_ok());
+        assert!(app_controller.active_measurement.is_some());
+        assert!(app_controller
+            .dispatch_event(AppEvent::Recording(RecordingEvent::StartRecording))
+            .await
+            .is_ok());
+        assert!(app_controller
+            .dispatch_event(AppEvent::Measurement(MeasurementEvent::RecordMessage(
+                HeartrateMessage::from_values(60, None, &[1000])
+            )))
+            .await
+            .is_ok());
+        assert!(app_controller
+            .dispatch_event(AppEvent::Recording(RecordingEvent::StopRecording))
+            .await
+            .is_ok());
+        assert!(app_controller
+            .handle_state_events(StateChangeEvent::StoreRecording)
+            .await
+            .is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_app_controller_discard_recording() {
+        // Covers discarding a measurement if active_measurement is Some
+        let (event_bus_tx, _) = broadcast::channel(16);
+        let ble_controller = MockBluetooth::new();
+        let acq_controller = MockStorage::new();
+
+        let mut app_controller =
+            AppController::new(ble_controller, acq_controller, event_bus_tx.clone());
+        // needed to have an open view channel
+        let _view = app_controller.get_viewmanager();
+
+        app_controller.active_measurement = Some(Arc::new(RwLock::new(MeasurementData::default())));
+
+        assert!(app_controller
+            .handle_state_events(StateChangeEvent::ToRecordingState)
+            .await
+            .is_ok());
+        assert!(app_controller.active_measurement.is_some());
+        assert!(app_controller
+            .handle_state_events(StateChangeEvent::DiscardRecording)
+            .await
+            .is_ok());
+        assert!(app_controller.active_measurement.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_app_controller_measurement_event_no_active_measurement() {
+        // Covers lines where measurement event is ignored if active_measurement is None
+        let (event_bus_tx, _) = broadcast::channel(16);
+        let ble_controller = MockBluetooth::new();
+        let acq_controller = MockStorage::new();
+        let mut app_controller =
+            AppController::new(ble_controller, acq_controller, event_bus_tx.clone());
+
+        // No active measurement
+        let event = AppEvent::Measurement(MeasurementEvent::SetStatsWindow(30));
+        let result = app_controller.dispatch_event(event).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_app_controller_error_storage_event() {
+        // Covers lines where acq_controller returns an error
+        let (event_bus_tx, _) = broadcast::channel(16);
+        let ble_controller = MockBluetooth::new();
+        let mut acq_controller = MockStorage::new();
+
+        acq_controller
+            .expect_clear()
+            .returning(|| Err(anyhow!("Mock storage clear error")));
+
+        let mut app_controller =
+            AppController::new(ble_controller, acq_controller, event_bus_tx.clone());
+
+        let event = AppEvent::Storage(StorageEvent::Clear);
+        let result = app_controller.dispatch_event(event).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_app_controller_repeated_discovery_fail() {
+        // Covers lines in event_handler retry logic for discovering adapters
+        // by returning an error first, then success
+        let (event_bus_tx, _) = broadcast::channel(16);
+        let mut ble_controller = MockBluetooth::new();
+        ble_controller
+            .expect_discover_adapters()
+            .once()
+            .returning(|| Err(anyhow!("Mock discovery fail")))
+            .once()
+            .returning(|| Ok(()));
+        let acq_controller = MockStorage::new();
+
+        let app_controller =
+            AppController::new(ble_controller, acq_controller, event_bus_tx.clone());
+        let gui_ctx = egui::Context::default();
+
+        // Just check it does not panic;
+        // it should retry once and eventually succeed
+        tokio::spawn(app_controller.event_handler(gui_ctx)).abort();
+    }
+
+    #[tokio::test]
+    async fn test_app_controller_event_handler_initial_viewstate_error() {
+        // Covers lines in event_handler where sending the initial view state fails
+        let (event_bus_tx, _) = broadcast::channel(16);
+        let ble_controller = MockBluetooth::new();
+        let mut acq_controller = MockStorage::new();
+
+        // Force an error in store_measurement on the initial state
+        acq_controller
+            .expect_store_measurement()
+            .returning(move |_| Err(anyhow!("Mock store error")));
+
+        let app_controller =
+            AppController::new(ble_controller, acq_controller, event_bus_tx.clone());
+        let gui_ctx = egui::Context::default();
+
+        // Just ensure we handle retries without panicking
+        tokio::spawn(app_controller.event_handler(gui_ctx)).abort();
+    }
+
+    #[tokio::test]
+    async fn test_app_controller_select_measurement_error() {
+        // Covers lines where get_measurement returns an error
+        let (event_bus_tx, _) = broadcast::channel(16);
+        let ble_controller = MockBluetooth::new();
+        let mut acq_controller = MockStorage::new();
+
+        acq_controller
+            .expect_get_measurement()
+            .with(always())
+            .returning(move |_| Err(anyhow!("Mock get measurement error")));
+
+        let mut app_controller =
+            AppController::new(ble_controller, acq_controller, event_bus_tx.clone());
+        let result = app_controller
+            .handle_state_events(StateChangeEvent::SelectMeasurement(999))
+            .await;
+        // Should return an error
+        assert!(result.is_err());
     }
 }
