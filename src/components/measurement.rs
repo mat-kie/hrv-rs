@@ -206,10 +206,26 @@ impl RecordingApi for MeasurementData {
 
 #[cfg(test)]
 mod tests {
+    use rand::{Rng, SeedableRng};
     use time::macros::datetime;
 
     use super::*;
     use crate::model::bluetooth::HeartrateMessage;
+
+    fn get_data(len: usize) -> Vec<(Duration, HeartrateMessage)> {
+        let mut rng = rand::rngs::StdRng::seed_from_u64(42);
+        (0..len)
+            .map(|idx| {
+                let rr = rng.gen_range(500..1500);
+                let hr = rng.gen_range(55..65);
+                (
+                    Duration::seconds(idx as _),
+                    HeartrateMessage::from_values(hr, None, &[rr]),
+                )
+            })
+            .collect()
+    }
+
     #[test]
     fn test_default_measurement_data() {
         let data = MeasurementData::default();
@@ -220,28 +236,30 @@ mod tests {
 
     #[test]
     fn test_update_session_data() {
-        let hr_msg = HeartrateMessage::new(&[0b10000, 80, 255, 0]);
+        let hr_msgs = get_data(4);
         let mut data = MeasurementData::default();
-        for _i in 0..4 {
-            data.measurements.push((Duration::seconds(1), hr_msg));
+        for msg in hr_msgs {
+            data.measurements.push(msg);
         }
+        data.update().unwrap();
         assert!(data.update().is_ok());
     }
 
     #[test]
     fn test_deserialize_measurement_data() {
-        let hr_msg = HeartrateMessage::new(&[0b10000, 80, 255, 0]);
+        let hr_msgs = get_data(100);
         let mut data = MeasurementData::default();
-        for _i in 0..100 {
-            data.measurements.push((Duration::seconds(1), hr_msg));
+        for msg in &hr_msgs {
+            data.measurements.push(*msg);
         }
+        data.update().unwrap();
         data.start_time = datetime!(2023-01-01 00:00:00 UTC);
         data.outlier_filter = 100.0;
         let json = serde_json::to_string(&data).unwrap();
         let data: MeasurementData = serde_json::from_str(&json).unwrap();
         assert_eq!(data.start_time, datetime!(2023-01-01 00:00:00 UTC));
         assert_eq!(data.measurements.len(), 100);
-        assert_eq!(data.measurements[0].1.get_hr(), 80.0);
+        assert_eq!(data.measurements[0].1.get_hr(), hr_msgs[0].1.get_hr());
         assert_eq!(data.outlier_filter, 100.0);
     }
 
@@ -293,16 +311,6 @@ mod tests {
     }
 
     #[test]
-    fn test_get_hrv_stats() {
-        let hr_msg = HeartrateMessage::new(&[0b10000, 80, 255, 0]);
-        let mut data = MeasurementData::default();
-        for _i in 0..4 {
-            data.measurements.push((Duration::seconds(1), hr_msg));
-        }
-        data.update().unwrap();
-    }
-
-    #[test]
     fn test_get_outlier_filter_value() {
         let data = MeasurementData::default();
         assert_eq!(data.get_outlier_filter_value(), 5.0);
@@ -310,12 +318,14 @@ mod tests {
 
     #[test]
     fn test_get_poincare_points() {
-        let hr_msg = HeartrateMessage::new(&[0b10000, 80, 255, 0]);
+        let hr_msgs = get_data(10);
         let mut data = MeasurementData::default();
-        for _i in 0..4 {
-            data.measurements.push((Duration::seconds(1), hr_msg));
+        for msg in hr_msgs {
+            data.measurements.push(msg);
         }
         data.update().unwrap();
+        let (inl, out) = data.get_poincare_points().unwrap();
+        assert_eq!(inl.len() + out.len(), 9);
     }
 
     #[test]
@@ -331,5 +341,33 @@ mod tests {
         assert!(data.set_stats_window(60).await.is_ok());
         assert!(data.get_stats_window().is_some());
         assert_eq!(data.get_stats_window().unwrap(), 60);
+    }
+
+    #[test]
+    fn get_elapsed_time_none() {
+        let data = MeasurementData::default();
+        assert_eq!(data.get_elapsed_time(), Duration::default());
+    }
+
+    #[test]
+    fn test_getters() {
+        let mut data = MeasurementData::default();
+        let hr_msgs = get_data(120);
+        for msg in hr_msgs {
+            data.measurements.push(msg);
+        }
+        data.update().unwrap();
+        assert!(data.get_dfa1a().is_some());
+        assert!(!data.get_dfa1a_ts().is_empty());
+        assert!(data.get_hr().is_some());
+        assert!(!data.get_hr_ts().is_empty());
+        assert!(data.get_rmssd().is_some());
+        assert!(!data.get_rmssd_ts().is_empty());
+        assert!(data.get_sd1().is_some());
+        assert!(!data.get_sd1_ts().is_empty());
+        assert!(data.get_sd2().is_some());
+        assert!(!data.get_sd2_ts().is_empty());
+        assert!(data.get_sdrr().is_some());
+        assert!(!data.get_sdrr_ts().is_empty());
     }
 }
