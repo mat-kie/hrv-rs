@@ -359,18 +359,28 @@ impl HrvAnalysisData {
 
 #[cfg(test)]
 mod tests {
+    use rand::{Rng, SeedableRng};
+
     use super::*;
+
+    fn get_data(len: usize) -> Vec<(Duration, HeartrateMessage)> {
+        let mut rng = rand::rngs::StdRng::seed_from_u64(42);
+        (0..len)
+            .map(|idx| {
+                let rr = rng.gen_range(500..1500);
+                let hr = rng.gen_range(55..65);
+                (
+                    Duration::seconds(idx as _),
+                    HeartrateMessage::from_values(hr, None, &[rr]),
+                )
+            })
+            .collect()
+    }
 
     #[test]
     fn test_hrv_runtime_data_add_measurement() {
         let mut runtime = HrvAnalysisData::default();
-        let hr_msg = HeartrateMessage::new(&[0b10000, 80, 255, 0]);
-        let data = [
-            (Duration::milliseconds(0), hr_msg),
-            (Duration::milliseconds(1000), hr_msg),
-            (Duration::milliseconds(2000), hr_msg),
-            (Duration::milliseconds(3000), hr_msg),
-        ];
+        let data = get_data(4);
         runtime.add_measurements(&data[0..1], 50).unwrap();
         assert!(!runtime.has_sufficient_data());
         runtime.add_measurements(&data[1..], 50).unwrap();
@@ -379,14 +389,76 @@ mod tests {
 
     #[test]
     fn test_hrv_session_data_from_acquisition() {
-        let hr_msg = HeartrateMessage::new(&[0b10000, 80, 255, 0]);
-        let data = vec![
-            (Duration::milliseconds(0), hr_msg),
-            (Duration::milliseconds(1000), hr_msg),
-            (Duration::milliseconds(2000), hr_msg),
-            (Duration::milliseconds(3000), hr_msg),
-        ];
+        let data = get_data(4);
         let session_data = HrvAnalysisData::from_acquisition(&data, None, 50.0).unwrap();
         assert!(session_data.has_sufficient_data());
+    }
+
+    #[test]
+    fn test_hrv_insufficient_data() {
+        let data = get_data(2);
+        let session_data = HrvAnalysisData::from_acquisition(&data, None, 50.0).unwrap();
+        assert!(!session_data.has_sufficient_data());
+    }
+
+    #[test]
+    fn test_hrv_outlier_removal() {
+        let data = [
+            (
+                Duration::seconds(0),
+                HeartrateMessage::from_values(60, None, &[600, 1000]),
+            ),
+            (
+                Duration::seconds(0),
+                HeartrateMessage::from_values(60, None, &[600, 1000]),
+            ),
+            (
+                Duration::seconds(1),
+                HeartrateMessage::from_values(60, None, &[800, 20000]),
+            ),
+            (
+                Duration::seconds(0),
+                HeartrateMessage::from_values(60, None, &[600, 1000]),
+            ),
+        ];
+        let session_data = HrvAnalysisData::from_acquisition(&data, None, 50.0).unwrap();
+        let poincare = session_data.get_poincare(None).unwrap();
+        // Expect some outliers because of the large RR interval
+        assert!(!poincare.1.is_empty());
+    }
+
+    #[test]
+    fn test_hrv_poincare_points() {
+        let data = get_data(5);
+        let session_data = HrvAnalysisData::from_acquisition(&data, None, 50.0).unwrap();
+        let (inliers, outliers) = session_data.get_poincare(None).unwrap();
+        assert_eq!(inliers.len() + outliers.len(), 4);
+    }
+
+    #[test]
+    fn test_full_dataset() {
+        fn assert_ts_props(ts: &[[f64; 2]]) {
+            ts.windows(2).for_each(|w| {
+                // time must be progressing
+                assert!(w[0][0] <= w[1][0]);
+                assert!(w[0][0] >= 0.0);
+                assert!((w[0][1] >= 0.0 && w[1][1] >= 0.0) || w[0][1].is_nan() || w[1][1].is_nan());
+            });
+        }
+        let data = get_data(256);
+        let session_data = HrvAnalysisData::from_acquisition(&data, Some(120), 5.0).unwrap();
+        assert!(session_data.has_sufficient_data());
+        assert!(session_data.get_rmssd().is_some());
+        assert!(session_data.get_sdrr().is_some());
+        assert!(session_data.get_sd1().is_some());
+        assert!(session_data.get_sd2().is_some());
+        assert!(session_data.get_hr().is_some());
+        assert!(session_data.get_dfa_alpha().is_some());
+        assert_ts_props(session_data.get_rmssd_ts());
+        assert_ts_props(session_data.get_sdrr_ts());
+        assert_ts_props(session_data.get_sd1_ts());
+        assert_ts_props(session_data.get_sd2_ts());
+        assert_ts_props(session_data.get_hr_ts());
+        assert_ts_props(session_data.get_dfa_alpha_ts());
     }
 }

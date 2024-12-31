@@ -107,7 +107,7 @@ impl HeartrateMessage {
     /// assert_eq!(msg.get_rr_intervals(), &[1000, 250]);
     /// ```
     #[cfg(test)]
-    fn from_values(hr_value: u16, energy_expended: Option<u16>, rr_values_ms: &[u16]) -> Self {
+    pub fn from_values(hr_value: u16, energy_expended: Option<u16>, rr_values_ms: &[u16]) -> Self {
         let mut flags = 0b00000000;
         if !rr_values_ms.is_empty() {
             flags |= 0b00010000;
